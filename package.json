@@ -1,12 +1,13 @@
 {
   "name": "songpost-site",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Self-serve song gift site: lyrics by Claude, music by a swappable engine, payment by Stripe.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "DEV_MOCKS=1 MUSIC_ENGINE=mock node server.js"
+    "postinstall": "node arrange.js",
+    "start": "node arrange.js && node server.js",
+    "dev": "node arrange.js && DEV_MOCKS=1 MUSIC_ENGINE=mock node server.js"
   },
   "engines": {
     "node": ">=20.12"
