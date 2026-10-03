@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en" data-look="center">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Songpost: turn their story into a song</title>
+<meta name="description" content="Tell us about someone you love. We write and record a song about them, and you send it in minutes.">
+<meta property="og:title" content="Songpost: turn their story into a song">
+<meta property="og:description" content="Tell us about someone you love. We write and record a song about them, and you send it in minutes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Jost:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="wordmark"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11" fill="#D3A53A" stroke="#9A7218" stroke-width="1"/><circle cx="12" cy="12" r="6.2" fill="#FFFFFF"/><path d="M0,-30C-25,-75 -100,-55 -100,-5C-100,45 -40,75 0,110C40,75 100,45 100,-5C100,-55 25,-75 0,-30Z" transform="translate(12 12) scale(.036) translate(0 -24)" fill="#0E2A33"/></svg>Songpost</div>
+  </header>
+
+  <main>
+    <section id="view-make" class="make" data-step="-1">
+      <div class="make-form">
+        <div id="hero">
+          <h1 class="display">Turn their story into a song.</h1>
+          <p class="tagline">Spreading kindness, one song at a time</p>
+          <p class="lede">How she raised you. The summer you met. The thing he always says. Tell us, and we write the lyrics, record the song, and give you a private page to send.</p>
+          <div class="center"><button class="btn light big" type="button" id="begin-btn">Start their song</button></div>
+          <p class="fine">About five minutes. You hear it before you pay. Songs from $24.99.</p>
+          <ol class="how">
+            <li><span class="n">1</span><span class="t">Tell us about them</span><span class="d">A few short questions about your story together.</span></li>
+            <li><span class="n">2</span><span class="t">Hear your song</span><span class="d">We write and record it while you wait. Listen before you pay.</span></li>
+            <li><span class="n">3</span><span class="t">Send it</span><span class="d">They open a private page with their own gold record, your note, and the lyrics.</span></li>
+          </ol>
+          <figure class="founder" id="founder" hidden><blockquote></blockquote><figcaption></figcaption></figure>
+        </div>
+
+        <div class="sheet" id="form-sheet" hidden>
+
+        <div class="progress" id="progress">
+          <span id="step-label">Step 1 of 5</span>
+          <div class="bar" aria-hidden="true"><i id="bar-fill"></i></div>
+          <button class="btn quiet small" type="button" id="restart-btn">Start over</button>
+        </div>
+        <div class="confirm" id="restart-confirm" hidden>
+          <p>Clear everything you've entered and start over?</p>
+          <div class="row">
+            <button class="btn small" type="button" id="restart-yes">Yes, start over</button>
+            <button class="btn quiet small" type="button" id="restart-no">Keep going</button>
+          </div>
+        </div>
+
+        <div class="step" data-step="0">
+          <h2>Who is it for?</h2>
+          <label class="field">Their first name
+            <input data-bind="recipient" maxlength="40" autocomplete="off">
+          </label>
+          <label class="field">How do you say their name?
+            <span class="hint">Optional. Only if people often say it wrong. Spell it the way it sounds, like "ah-NAH".</span>
+            <input data-bind="sayName" maxlength="40" autocomplete="off">
+          </label>
+          <label class="field">They are my
+            <input data-bind="relationship" maxlength="40" autocomplete="off" placeholder="wife, dad, best friend">
+          </label>
+          <fieldset>
+            <legend>What's the song for?</legend>
+            <div class="chips" data-field="occasion"></div>
+          </fieldset>
+          <label class="field">Your name, as they'll see it
+            <input data-bind="sender" maxlength="40" autocomplete="off">
+          </label>
+          <div class="row">
+            <button class="btn primary" type="button" data-next>Continue</button>
+          </div>
+          <p class="err" role="alert"></p>
+        </div>
+
+        <div class="step" data-step="1" hidden>
+          <h2 id="details-h">What should the song say?</h2>
+          <p class="lead-in">Answer as many as you like. A sentence each is plenty.</p>
+          <label class="field"><span id="q1-label"></span><textarea class="short" data-bind="a1" maxlength="600"></textarea></label>
+          <label class="field"><span id="q2-label"></span><textarea class="short" data-bind="a2" maxlength="600"></textarea></label>
+          <label class="field"><span id="q3-label"></span><textarea class="short" data-bind="a3" maxlength="600"></textarea></label>
+          <label class="field"><span id="q4-label"></span><textarea class="short" data-bind="a4" maxlength="600"></textarea></label>
+          <fieldset>
+            <legend>The tone (pick one or two)</legend>
+            <div class="chips" data-field="tone"></div>
+            <p class="status-line" id="shape-note"></p>
+          </fieldset>
+          <div class="row">
+            <button class="btn primary" type="button" data-next>Continue</button>
+            <button class="btn quiet" type="button" data-back>Back</button>
+          </div>
+          <p class="err" role="alert"></p>
+        </div>
+
+        <div class="step" data-step="2" hidden>
+          <h2>How should it sound?</h2>
+          <fieldset>
+            <legend>Style (pick one, or two to blend)</legend>
+            <div class="chips" data-field="genre"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Language of the song</legend>
+            <div class="chips" data-field="language"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Who sings it</legend>
+            <div class="chips" data-field="voice"></div>
+          </fieldset>
+          <label class="field">Artists or songs whose sound you like
+            <span class="hint">Optional. We use them to choose the instruments and feel. The song won't copy them or use their names.</span>
+            <input data-bind="inspiration" maxlength="120" autocomplete="off">
+          </label>
+          <div class="row">
+            <button class="btn primary" type="button" id="write-btn">Write the lyrics</button>
+                        <button class="btn" type="button" id="keep-btn" hidden>Keep the lyrics I have</button>
+            <button class="btn quiet" type="button" data-back>Back</button>
+          </div>
+          <div class="rec-progress" id="write-progress" data-temp="1" role="status" hidden style="margin-top:14px">
+            <div class="rp-bar" aria-hidden="true"><i></i></div>
+            <p class="rp-text"></p>
+          </div>
+          <p class="status-line" id="write-status" aria-live="polite"></p>
+          <p class="err" role="alert" id="write-err"></p>
+        </div>
+
+        <div class="step" data-step="3" hidden>
+          <h2>Read it through</h2>
+          <label class="field">Song title
+            <input data-bind="title" maxlength="80" autocomplete="off">
+          </label>
+          <label class="field">Lyrics
+            <span class="hint">Change any line you like. Keep the labels in brackets; they tell the singer where each part starts.</span>
+            <textarea class="lyrics-edit" data-bind="lyrics" maxlength="4500"></textarea>
+          </label>
+          <label class="field">Your email or mobile number
+            <span class="hint">We send you a link to this song, so it's never lost, and your receipt. If you give a mobile number, you agree to get texts about this song. It's used for nothing else.</span>
+            <input class="plain" data-bind="email" type="text" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="120">
+          </label>
+          <div class="row">
+            <button class="btn primary" type="button" id="record-btn">Record my song</button>
+            <button class="btn" type="button" id="again-btn">Write different lyrics</button>
+            <button class="btn quiet" type="button" id="back-from-lyrics">Back</button>
+          </div>
+          <div class="rec-progress" id="again-progress" data-temp="1" role="status" hidden style="margin-top:14px">
+            <div class="rp-bar" aria-hidden="true"><i></i></div>
+            <p class="rp-text"></p>
+          </div>
+          <p class="status-line" id="again-status" aria-live="polite"></p>
+          <p class="err" role="alert" id="record-err"></p>
+        </div>
+
+        <div class="step" data-step="4" hidden>
+          <h2 id="listen-h">Recording your song</h2>
+          <div id="listen-wait">
+            <div class="rec-progress" role="status">
+              <div class="rp-bar" aria-hidden="true"><i id="rp-fill"></i></div>
+              <p class="rp-text" id="rp-left"></p>
+            </div>
+            <p class="status-line">Keep this page open. You hear your preview as soon as it is done.</p>
+          </div>
+          <div id="listen-fail" hidden>
+            <p class="err" role="alert" id="listen-fail-msg"></p>
+            <div class="row">
+              <button class="btn primary" type="button" id="retry-btn">Record it again</button>
+              <button class="btn quiet" type="button" id="fail-edit">Change the lyrics</button>
+            </div>
+          </div>
+          <div id="listen-ready" hidden>
+            <p class="lede" id="listen-lede"></p>
+            <div class="chips" id="take-chips" role="group" aria-label="Which take" hidden style="margin-bottom:14px"></div>
+            <div id="preview-player"></div>
+            <div class="msgbox hearing" id="hearing" hidden></div>
+            <p class="status-line" id="take-note"></p>
+            <p class="status-line" id="email-note"></p>
+            <label class="field" style="margin-top:18px">A note to go with the song
+              <span class="hint">Optional. It appears above the lyrics on their page.</span>
+              <textarea data-bind="note" maxlength="600" style="min-height:90px"></textarea>
+            </label>
+            <div class="tiers" role="group" aria-label="Which record to unlock">
+              <button class="tier" type="button" data-tier="song" aria-pressed="true">
+                <span class="t-top"><span><i class="disc plate" data-metal="gold" aria-hidden="true"></i>Gold record</span><span>$24.99</span></span>
+                <span class="t-sub">The full song, a private page to send them, and a file to keep.</span>
+              </button>
+              <button class="tier" type="button" data-tier="keepsake" aria-pressed="false">
+                <span class="t-top"><span><i class="disc plate" data-metal="platinum" aria-hidden="true"></i>Platinum record</span><span>$39.99</span></span>
+                <span class="t-sub">Everything in Gold, plus both takes and a lyric sheet to print and frame.</span>
+              </button>
+            </div>
+            <div class="voices" id="voices" aria-label="What people have said" hidden></div>
+            <details class="promise">
+              <summary>One free redo, and your money back within 7 days if it still isn't right.</summary>
+              <ul>
+                <li>Within 7 days of paying, we record your song again once, for any reason.</li>
+                <li>Still not happy? Tell us within those 7 days and we refund the full price.</li>
+                <li>A refunded song's page is taken down.</li>
+                <li>Download your song to keep it. Songpost may remove a song's page at any time.</li>
+              </ul>
+            </details>
+            <p class="status-line" id="test-note" style="margin:0 0 12px" hidden>Test checkout is on. No card is charged.</p>
+            <div class="row">
+              <button class="btn primary" type="button" id="pay-btn">Unlock the Gold record for $24.99</button>
+              <button class="btn" type="button" id="retake-btn">Record another take</button>
+              <button class="btn quiet" type="button" id="edit-lyrics-btn">Change the lyrics</button>
+            </div>
+            <p class="err" role="alert" id="pay-err"></p>
+            <p class="agree">By unlocking, you agree to the <a href="/terms">terms</a> and the <a href="/refunds">redo and refund policy</a>.</p>
+          </div>
+          <div class="row" style="margin-top:22px"><button class="btn quiet" type="button" id="start-over">Start a new song instead</button></div>
+        </div>
+
+        <div class="step" data-step="5" hidden>
+          <h2 id="done-h">It's ready to send.</h2>
+          <div class="center"><div class="plate" id="done-plate"><span class="p1" id="done-p1"></span><span class="p2" id="done-p2"></span></div></div>
+          <fieldset>
+            <legend>How should it get to them?</legend>
+            <div class="chips" id="send-how" role="group">
+              <button class="chip" type="button" data-how="self" aria-pressed="true">I'll send it myself</button>
+              <button class="chip" type="button" data-how="date" aria-pressed="false">Send it for me on a date</button>
+            </div>
+          </fieldset>
+          <div id="send-self">
+            <p class="lede" id="done-p"></p>
+            <div class="linkbox">
+              <input id="gift-link" readonly aria-label="Link to the song">
+              <button class="btn small" type="button" id="copy-link">Copy link</button>
+            </div>
+            <div class="row">
+              <button class="btn" type="button" id="share-btn" hidden>Share it</button>
+              <a class="btn" id="sms-link">Text it</a>
+              <a class="btn" id="mail-link">Email it</a>
+            </div>
+          </div>
+          <div id="send-date" hidden>
+            <label class="field">Their email or mobile number
+              <span class="hint">Only give this if they would welcome a message from Songpost.</span>
+              <input class="plain" id="to-email" type="text" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="120">
+            </label>
+            <label class="field">The date to send it
+              <input id="to-date" type="date">
+            </label>
+            <div class="row"><button class="btn" type="button" id="schedule-btn">Schedule it</button></div>
+            <p class="status-line" id="schedule-note" role="status"></p>
+            <p class="err" role="alert" id="schedule-err"></p>
+          </div>
+          <p class="status-line" id="played-note"></p>
+          <div class="row" style="margin-top:18px">
+            <a class="btn primary" id="see-gift" target="_blank" rel="noopener">See their page</a>
+            <button class="btn" type="button" id="make-another">Make another song</button>
+          </div>
+          <div class="after-pay" id="extra-box" hidden>
+            <p class="status-line" id="extra-note" role="status"></p>
+            <div class="rec-progress" id="extra-progress" data-temp="1" hidden>
+              <div class="rp-bar" aria-hidden="true"><i></i></div>
+              <p class="rp-text"></p>
+            </div>
+            <div class="row"><button class="btn small" type="button" id="second-btn" hidden>Record the second take</button></div>
+          </div>
+          <details class="promise after-pay" id="redo-box" hidden>
+            <summary>Not quite right? Record it again, free, once.</summary>
+            <p class="status-line" id="redo-lede"></p>
+            <label class="field">Song title
+              <input id="redo-title" maxlength="80" autocomplete="off">
+            </label>
+            <label class="field">Lyrics
+              <span class="hint">Change any line you like, or leave the words as they are for a new performance. Keep the labels in brackets.</span>
+              <textarea class="lyrics-edit" id="redo-lyrics" maxlength="4500"></textarea>
+            </label>
+            <div class="row"><button class="btn" type="button" id="redo-btn">Record it again</button></div>
+            <p class="err" role="alert" id="redo-err"></p>
+          </details>
+        </div>
+        </div>
+      </div>
+
+      <aside class="make-side" aria-label="Record preview">
+        <div class="rec-stage"><svg class="rings" viewBox="-130 -130 260 260" aria-hidden="true" focusable="false"><circle class="hl" r="50" style="--k:1.205;--o:1.00;--o2:1.00"/><circle class="hl" r="50" style="--k:1.386;--o:1.00;--o2:0.90"/><circle class="hl" r="50" style="--k:1.594;--o:0.90;--o2:0.80"/><circle class="hl" r="50" style="--k:1.833;--o:0.80;--o2:0.70"/><circle class="hl" r="50" style="--k:2.108;--o:0.70;--o2:0.60"/><circle class="hl" r="50" style="--k:2.424;--o:0.60;--o2:0.50"/><circle class="hl" r="50" style="--k:2.788;--o:0.50;--o2:0.40"/><circle class="hl" r="50" style="--k:3.206;--o:0.40;--o2:0.30"/><circle class="hl" r="50" style="--k:3.687;--o:0.30;--o2:0.20"/><circle class="hl" r="50" style="--k:4.240;--o:0.20;--o2:0.10"/><circle class="hl" r="50" style="--k:4.876;--o:0.10;--o2:0.00"/><g class="hb"><circle class="well" r="63"/><circle class="foil" r="63"/></g></svg><div class="record" id="make-record"></div></div>
+      </aside>
+    </section>
+
+    <section id="view-gift" class="gift" hidden></section>
+      </main>
+
+  <footer class="foot">
+    <p>Lyrics and music are made with AI from the details you give.</p>
+    <nav class="foot-links" aria-label="Policies">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/refunds">Redo and refunds</a>
+      <a href="/content">Content rules</a>
+    </nav>
+  </footer>
+</div>
+<script src="/common.js"></script>
+<script src="/make.js"></script>
+</body>
+</html>

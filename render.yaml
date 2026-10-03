@@ -1,0 +1,34 @@
+# Render Blueprint: sets up Songpost as one web service with a disk for the songs.
+# In Render choose New > Blueprint and pick this repository. Render asks for the values marked "sync: false".
+services:
+  - type: web
+    name: songpost
+    runtime: node
+    plan: 0.5c-512mb          # the smallest paid instance; a disk cannot be attached to the free one
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/config
+    disk:
+      name: songpost-data
+      mountPath: /var/data
+      sizeGB: 2               # about 500 songs; it can be made larger later, never smaller
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_DIR
+        value: /var/data
+      - key: MUSIC_ENGINE
+        value: elevenlabs
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # --- private test settings. Remove DEV_MOCKS and ACCESS_CODE, and add the Stripe keys, before opening to the public. ---
+      - key: ACCESS_CODE        # the invite code people need before they can make a song
+        sync: false
+      - key: ADMIN_KEY          # the password for the /admin page
+        sync: false
+      - key: DEV_MOCKS          # test checkout: songs unlock without a card
+        value: "1"
+      - key: DAILY_UNPAID_SONG_CAP
+        value: "25"
