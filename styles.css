@@ -52,7 +52,7 @@ button,input,textarea{font:inherit;color:inherit}
 
 /* the record, resting in an engraved heart */
 .make{--rec:104px;display:flex;flex-direction:column}
-.make[data-step="-1"]{--rec:190px}
+.make[data-step="-1"]{--rec:min(150px,37vw)}
 .gift{--rec:min(200px,48vw)}
 .rec-stage{position:relative;display:flex;justify-content:center;margin:calc(var(--rec)*.3) 0 calc(var(--rec)*.5)}
 .hearts,.rings{position:absolute;left:50%;top:50%;width:calc(var(--rec)*2.6);height:calc(var(--rec)*2.6);transform:translate(-50%,-50%);pointer-events:none;z-index:-1;overflow:visible}
@@ -90,6 +90,17 @@ h1.display{font-family:var(--serif);font-weight:400;font-size:clamp(2.9rem,11vw,
 .tagline{font-family:var(--serif);font-style:italic;font-size:1.35rem;color:var(--brass);margin:0 0 18px}
 #hero .lede{font-family:var(--sans);font-size:1.05rem;line-height:1.6;color:var(--on-field-soft);max-width:34em;margin:0 auto 26px}
 .fine{font-size:.84rem;letter-spacing:.03em;color:var(--on-field-soft);margin:14px 0 0}
+/* the opening page: two records, one for each kind of song. Tapping a record starts that kind. */
+.rec-pair{display:flex;justify-content:center;align-items:flex-start}
+.rec-pick{display:flex;flex-direction:column;align-items:center}
+.make:not([data-step="-1"]) #pick-theme,.make:not([data-step="-1"]) .rec-cap{display:none}
+.make[data-step="-1"] .rec-pair{gap:min(30px,6vw)}
+.make[data-step="-1"] .rec-pick{width:var(--rec);cursor:pointer}
+:root[data-look="center"] .make[data-step="-1"] .rec-stage{margin-bottom:calc(var(--rec)*.16)}
+.rec-cap{padding:0;font-size:.95rem;line-height:1.3;white-space:normal;text-align:center;justify-content:center;color:var(--on-field);position:relative;z-index:1}
+.make[data-step="-1"] .make-side{margin-bottom:calc(var(--rec)*.22)}
+#hero .lede + .lede{margin-top:-14px}
+.starts{flex-wrap:wrap;gap:12px 14px}
 .how{list-style:none;padding:0;margin:48px auto 0;max-width:560px;text-align:left}
 .how li{display:grid;grid-template-columns:2.4rem 1fr;gap:4px 10px;padding:16px 0;border-top:1px solid var(--hair)}
 .how .n{font-family:var(--serif);font-style:italic;font-size:1.9rem;line-height:1;color:var(--brass)}
@@ -120,6 +131,7 @@ h1.display{font-family:var(--serif);font-weight:400;font-size:clamp(2.9rem,11vw,
 .field textarea:focus-visible{outline:1px solid var(--focus);outline-offset:0;border-color:var(--focus)}
 .field textarea.short{min-height:72px}
 textarea.lyrics-edit{font-size:1.28rem;line-height:1.5;min-height:360px}
+.field textarea.sound-edit{font-family:var(--sans);font-size:1rem;font-weight:400;line-height:1.5;min-height:92px}
 ::placeholder{color:var(--muted);opacity:.75;font-style:italic;font-weight:400}
 fieldset{border:0;padding:0;margin:0 0 22px;min-width:0}
 legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;padding:0;margin-bottom:10px}
@@ -202,6 +214,72 @@ legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;padding:0;margin-bo
 .plate.reveal{animation:rise .7s ease both}
 #done-plate{margin:0 0 24px}
 .field input[type="date"]{font-family:var(--sans);font-size:1.05rem;font-weight:400}
+/* a button that belongs to the field above it: hear a name said, or speak an answer */
+.field.has-after{margin-bottom:8px}
+.after-field{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0 0 22px}
+.after-field .hint{flex:1;min-width:13em;color:var(--muted);font-size:.86rem}
+.after-field .btn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+/* a text field drawn as a box, for ones that were being overlooked as a bare underline */
+.field input.boxed{margin:8px 0 0;padding:11px 12px;border:1px solid var(--rule);border-radius:3px;background:var(--paper)}
+.field input.boxed:focus-visible{outline:1px solid var(--focus);outline-offset:0;border:1px solid var(--focus);padding:11px 12px}
+.field input.boxed::placeholder{color:var(--muted);opacity:.75}
+/* on the sender's page: when it was played, and what the recipient wrote back */
+.reply-in{margin:12px 0 2px;padding:0;font-family:var(--serif);font-style:italic;font-size:1.3rem;line-height:1.35}
+.reply-in + .status-line{margin:0 0 6px}
+.after-pay h3{font-family:var(--serif);font-weight:500;font-size:1.4rem;line-height:1.15;margin:8px 0 0}
+/* on the opening page: example songs to play */
+.samples{margin:40px auto 0;max-width:34rem;text-align:left;background:var(--paper);color:var(--ink);border-radius:5px;padding:20px 22px 8px;box-shadow:0 24px 44px -26px var(--shadow)}
+.samples h3{font-family:var(--serif);font-weight:500;font-size:1.5rem;margin:0 0 6px;text-align:center}
+.sample{margin:0;padding:12px 0 14px;border-top:1px solid var(--rule)}
+.sample:first-child{border-top:0}
+.sample .s-title{font-family:var(--serif);font-style:italic;font-weight:500;font-size:1.4rem;line-height:1.2;margin:0 0 2px}
+.sample figcaption{font-size:.9rem;color:var(--muted);margin:0 0 8px}
+.sample .s-note{font-size:.8rem;color:var(--muted);margin:8px 0 0}
+.sample .player{border-top:0;border-bottom:0;padding:4px 0}
+/* on the opening page: the songs made on this device */
+.yours{margin:38px auto 0;max-width:34rem;text-align:center}
+.yours h3{font-family:var(--serif);font-weight:500;font-size:1.5rem;margin:0 0 4px;color:var(--on-field)}
+.yours .fine{margin:0 0 10px}
+.yours .btn{display:block;margin:6px auto;color:var(--on-field)}
+/* making a song together: the invitation on the story step, and who has added their memories */
+.together{background:var(--tint);border:1px solid var(--rule);border-radius:3px;padding:16px 18px 14px;margin:6px 0 20px}
+.together *{box-sizing:border-box}
+.together h3{font-family:var(--serif);font-weight:500;font-size:1.4rem;line-height:1.2;margin:0 0 6px}
+.together .status-line{margin:0 0 12px}
+.together .linkbox input{background:var(--paper)}
+.tg-part{border-top:1px solid var(--rule);padding:10px 0}
+.tg-part summary{cursor:pointer;font-weight:500}
+.tg-part .tg-q{font-size:.84rem;color:var(--muted);margin:10px 0 0}
+.tg-part .tg-a{font-family:var(--serif);font-size:1.2rem;line-height:1.35;margin:0}
+.tg-part .btn{margin-top:8px}
+#tg-list{margin:4px 0 10px}
+.tg-err{color:var(--danger);font-weight:500;margin:10px 0 0}
+.tg-err:empty{display:none}
+.together-fine{max-width:34em;margin:26px auto 0}
+.gift .from-all{font-size:.95rem;color:var(--on-field-soft);margin:10px 0 0}
+.after-pay .legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;margin:0 0 10px}
+.after-pay .check{margin:0 0 14px;align-items:flex-start}
+.after-pay .check input{flex:none;margin-top:1px}
+.legal-body .lede{margin-top:4px}
+.legal-body .field textarea.short{min-height:84px}
+.legal-body .pass{font-size:1.2rem}
+/* the tone and style suggested from the customer's story */
+.suggest{background:var(--tint);border-radius:3px;padding:12px 14px;margin:0 0 20px;font-size:.95rem;line-height:1.45}
+.suggest:empty{display:none}
+.suggest b{font-weight:500}
+.suggest p{margin:0 0 8px}
+#occ-fix{margin:12px 0 0}
+.any-occasion{margin-top:18px}
+/* the contact field on the lyrics step: set apart in its own panel so it can't be missed */
+.contact-box{background:var(--tint);border:1px solid var(--rule);border-radius:3px;padding:18px 18px 16px;margin:26px 0 20px}
+.contact-box .field{margin:0}
+.contact-box .c-title{display:block;font-family:var(--serif);font-size:1.4rem;font-weight:500;letter-spacing:0;line-height:1.2;margin-bottom:8px}
+.contact-box .field input.plain{margin:8px 0 10px;padding:12px;border:1.5px solid var(--ink);border-radius:3px;background:var(--paper)}
+.contact-box .field input.plain:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border:1.5px solid var(--ink);padding:12px}
+.contact-box .field input.plain::placeholder{color:var(--muted);opacity:.75}
+.contact-box.needs{border-color:var(--danger)}
+.contact-box.needs .field input.plain{border-color:var(--danger)}
+.contact-box .err{margin:10px 0 0}
 .gift .sheet{text-align:left}
 .sheet.reveal{animation:rise .7s ease both}
 @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
@@ -244,12 +322,14 @@ legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;padding:0;margin-bo
 .lab-brand{font-family:var(--sans);font-weight:500;font-size:9.5px;letter-spacing:.34em;fill:var(--label-ink)}
 .lab-for{font-family:var(--serif);font-style:italic;font-size:18px;fill:var(--label-ink)}
 .lab-name{font-family:var(--serif);font-weight:600;fill:var(--label-ink)}
+.lab-name.blank{font-style:italic;font-weight:500;opacity:.45} /* the blank where the name will go */
 .lab-title{font-family:var(--serif);font-style:italic;font-size:15.5px;fill:var(--label-ink)}
 .lab-from{font-family:var(--sans);font-weight:500;font-size:10px;letter-spacing:.16em;fill:var(--label-ink)}
 
 @media (min-width:900px){
   .app{padding:28px 32px 72px}
-  .make[data-step="-1"]{--rec:250px}
+  .make[data-step="-1"]{--rec:220px}
+  .make[data-step="-1"] .rec-pair{gap:64px}
   .make:not([data-step="-1"]){--rec:230px;display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:72px;align-items:start;margin-top:28px}
   .make:not([data-step="-1"]) .make-side{order:2;position:sticky;top:40px}
   .sheet{padding:40px 44px 42px}
@@ -266,7 +346,7 @@ a.btn{text-decoration:none}
 /* Platinum: the lyric sheet prints cleanly on paper */
 @media print{
   body{background:#fff;color:#000}
-  .top,.foot,.gift-bar,.rec-stage,.open-row,.player,.keep,.reply,.pass,.report,.takes,.plate,.for,.preview-note,.gift h1{display:none !important}
+  .top,.foot,.gift-bar,.rec-stage,.open-row,.player,.keep,.reply,.pass,.report,.takes,.plate,.for,.from-all,.preview-note,.gift h1{display:none !important}
   .sheet{box-shadow:none;padding:0;background:#fff;color:#000}
   .sheet::before{display:none}
   .g-lyrics .sec{color:#444}

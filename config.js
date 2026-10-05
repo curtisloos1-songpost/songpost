@@ -10,6 +10,10 @@ const int = (name, fallback) => {
 };
 const str = (name, fallback = '') => (process.env[name] || fallback).trim();
 const on = name => str(name) === '1';
+const num = (name, fallback) => {
+  const n = parseFloat(process.env[name]);
+  return Number.isFinite(n) ? n : fallback;
+};
 
 const cfg = {
   port: int('PORT', 3000),
@@ -58,6 +62,21 @@ const cfg = {
   sendHourUtc: int('SEND_HOUR_UTC', 15),
   // Which service sends emails and texts. "log" only queues them for the admin page.
   messageProvider: str('MESSAGE_PROVIDER', 'log').toLowerCase(),
+  // Email through Resend (https://resend.com). Set MESSAGE_PROVIDER=resend with these two filled in.
+  resendKey: str('RESEND_API_KEY'),
+  mailFrom: str('MAIL_FROM'),          // who emails come from, on a domain verified with Resend: Songpost <hello@your-domain.com>
+  mailReplyTo: str('MAIL_REPLY_TO'),   // where replies go, if different
+  // Added to the end of reminder emails. US law expects promotional email to carry the sender's postal address.
+  mailFooter: str('MAIL_FOOTER'),
+
+  // What things cost, for the "Costs and earnings" figures on the admin page. These are the suppliers' list
+  // prices; change them here if your plan's prices differ. They only affect what the admin page reports.
+  costMusicPerMinute: num('COST_MUSIC_PER_MINUTE', 0.15),            // ElevenLabs, dollars per minute of music
+  costClaudeInPerMTok: num('COST_CLAUDE_INPUT_PER_MTOK', 2),         // Claude, dollars per million tokens read
+  costClaudeOutPerMTok: num('COST_CLAUDE_OUTPUT_PER_MTOK', 10),      // Claude, dollars per million tokens written
+  cardFeePercent: num('CARD_FEE_PERCENT', 2.9),                      // Stripe, percent of each sale
+  cardFeeFixedCents: num('CARD_FEE_FIXED_CENTS', 30),                // Stripe, cents per sale
+  monthlyFixedCosts: num('MONTHLY_FIXED_COSTS', 14),                 // hosting and plans, dollars a month
 
   adminKey: str('ADMIN_KEY'),
   devMocks: on('DEV_MOCKS'),

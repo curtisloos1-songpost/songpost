@@ -1,23 +1,44 @@
 (function(){
 "use strict";
 const CHIPS = {
-  occasion: ["A favorite memory","Our story","Birthday","Anniversary","Thank you","Just because","Wedding","New baby","Graduation","Get well","Miss you"],
+  occasion: ["A favorite memory","Our story","A theme or feeling","Birthday","Anniversary","Thank you","Just because","Wedding","New baby","Graduation","Retirement","Work anniversary","Boss's Day","Get well","Miss you","Another occasion"],
   tone: ["Heartfelt","Funny","Nostalgic","Grateful","Romantic","Playful","Proud","Uplifting","Tender","Bittersweet"],
   genre: ["Acoustic folk","Country","Pop","R&B","Rock","Gospel","Jazz","Hip-hop","Tejano","Lullaby"],
   voice: ["No preference","A man's voice","A woman's voice","A duet"],
+  tempo: ["Let the song decide","Slow","Medium","Upbeat"],
+  instruments: ["Acoustic guitar","Piano","Electric guitar","Fiddle","Steel guitar","Strings","Horns","Accordion","Organ","Harmonica","808s","Synths","Hand claps","Upright bass"],
   language: ["English","Spanish","French","German","Portuguese","Italian","Japanese"]
 };
 // How many of each are shown before "More". The rest are one tap away.
-const SHOW = { occasion: 6, tone: 5, genre: 5, language: 2 };
+const SHOW = { occasion: 6, tone: 5, genre: 5, language: 7, instruments: 6 }; // every language is shown: people were missing the ones under "More"
+// soundBy: who chose the tone and style ("" not yet, "suggested" from the story, "you" the customer).
+// suggestNote: the line that explains the suggestion. suggestedFor: the story it was made from.
 const blank = () => ({recipient:"",relationship:"",occasion:"A favorite memory",sender:"",a1:"",a2:"",a3:"",a4:"",sayName:"",email:"",
-  tone:"Heartfelt",genre:"Acoustic folk",voice:"No preference",language:"English",inspiration:"",title:"",lyrics:"",style:"",note:""});
-const DRAFT_KEY = "songpost-draft-v5", ORDER_KEY = "songpost-order-v2", MINE_KEY = "songpost-mine-v1";
+  tone:"Heartfelt",genre:"Acoustic folk",voice:"No preference",tempo:"Let the song decide",language:"English",inspiration:"",title:"",lyrics:"",style:"",note:"",
+  soundBy:"",suggestNote:"",suggestedFor:"",occasionOther:"",english:"",groupUsed:"",instruments:""});
+// A song about a subject (young love, growing old) rather than about the person's own story.
+const THEME = "A theme or feeling";
+// "Another occasion" lets the customer type any day at all. occasion() is what the song is really for.
+const OTHER = "Another occasion";
+const occasion = () => (draft.occasion === OTHER ? (draft.occasionOther || "").trim() || "Just because" : draft.occasion);
+const DRAFT_KEY = "songpost-draft-v5", ORDER_KEY = "songpost-order-v2", MINE_KEY = "songpost-mine-v1", SONGS_KEY = "songpost-songs-v1", GROUP_KEY = "songpost-group-v1";
 
 let draft = blank();   // what the sender has typed
 let ref = null;        // { id, key } of the song being made, kept on this device
 let view = null;       // the server's view of that song
-let site = { priceGoldCents: 2499, pricePlatinumCents: 3999, previewSeconds: 30, takesPerOrder: 2, testCheckout: false, messaging: false, scheduling: false, redoDays: 7, lyricsEstimateSeconds: 20 };
-let step = -1, tier = "song", pollTimer = null, doneTimer = null, busy = false, previewSrc = "";
+let site = { priceGoldCents: 2499, pricePlatinumCents: 3999, previewSeconds: 30, takesPerOrder: 2, testCheckout: false, messaging: false, texting: false, scheduling: false, redoDays: 7, lyricsEstimateSeconds: 20, heardChoices: [] };
+// A song made together. grp is { id, key } for the invitation started on this device; grpView is the server's
+// view of it: who has added their memories so far. shownFrom is who a finished song is signed from.
+let grp = null, grpView = null, groupTimer = null, shownFrom = "";
+const others = () => (grpView ? grpView.parts.filter(p => p.answers && p.answers.length) : []);
+// Once lyrics are written, the song is signed from the people whose memories those lyrics hold.
+const usedIds = () => (draft.groupUsed ? draft.groupUsed.split(",") : []);
+const signers = () => (draft.lyrics.trim() ? others().filter(p => usedIds().indexOf(String(p.id)) >= 0) : others());
+const signedFrom = () => shownFrom || (signers().length ? fromLine([draft.sender.trim() || "you"].concat(signers().map(p => p.name))) : draft.sender);
+// A mobile number is only taken while texts can be sent, or while nothing is being sent at all.
+const emailOnly = () => site.messaging && !site.texting;
+const contactOk = v => { const k = contactKind(v); return k === "email" || (k === "phone" && !emailOnly()); };
+let step = -1, tier = "song", pollTimer = null, doneTimer = null, heardTimer = null, busy = false, previewSrc = "";
 // Today's date where the customer is, as YYYY-MM-DD.
 const localToday = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
@@ -34,17 +55,26 @@ function track(kind){
   api("/api/track", { method: "POST", body: { kind } }).catch(() => {});
 }
 
-function updateRecord(){ $("#make-record").innerHTML = recordSVG(draft); }
+function updateRecord(){
+  const mine = Object.assign({}, draft, { occasion: occasion(), sender: signedFrom() });
+  if (step !== -1){ setRecord($("#make-record"), mine); return; }
+  // On the opening page there are two records, one for each kind of song: about them, or about a theme or a feeling.
+  const both = { lead: "a song about", sender: "", genre: "", nameSize: 40 };
+  setRecord($("#make-record"), Object.assign({}, both, { recipient: "them", title: "their story", aria: "A song about them: their story." }));
+  setRecord($("#theme-record"), Object.assign({}, both, { recipient: "a theme", title: "or a feeling", aria: "A song about a theme or a feeling." }));
+}
 
 /* ---------- choices ---------- */
 // Style and tone can each be one choice or a blend of two, stored as "Country and Pop".
 const BLENDS = { genre: true, tone: true };
-function listOf(field){ return String(draft[field] || "").split(" and ").map(s => s.trim()).filter(Boolean); }
+// Choices where none, one or several can be picked, up to a limit, stored as "Piano, Fiddle".
+const MANY = { instruments: 3 };
+function listOf(field){ return String(draft[field] || "").split(MANY[field] ? "," : " and ").map(s => s.trim()).filter(Boolean); }
 const SHAPE_WORD = { heart: "a heart", star: "a star", sun: "a sun", burst: "a burst" };
 function paintChips(){
   $("#shape-note").textContent = "On their page, " + SHAPE_WORD[shapeFor(draft.tone)] + " opens around the record when the song starts.";
   $$(".chips[data-field]").forEach(box => {
-    const field = box.dataset.field, sel = BLENDS[field] ? listOf(field) : [draft[field]];
+    const field = box.dataset.field, sel = BLENDS[field] || MANY[field] ? listOf(field) : [draft[field]];
     $$(".chip:not(.more)", box).forEach(b => b.setAttribute("aria-pressed", String(sel.indexOf(b.textContent) >= 0)));
     // a choice that lives under "More" opens the list, so it is never hidden while selected
     if (box.classList.contains("collapsed") && $$(".chip.extra", box).some(b => sel.indexOf(b.textContent) >= 0)){
@@ -53,35 +83,25 @@ function paintChips(){
   });
 }
 function pickChip(field, opt){
-  if (BLENDS[field]){
+  if (MANY[field]){
+    let sel = listOf(field);
+    if (sel.indexOf(opt) >= 0) sel = sel.filter(x => x !== opt); else { sel.push(opt); if (sel.length > MANY[field]) sel.shift(); }
+    draft[field] = sel.join(", ");
+  } else if (BLENDS[field]){
     let sel = listOf(field);
     if (sel.indexOf(opt) >= 0){ if (sel.length > 1) sel = sel.filter(x => x !== opt); }
     else { sel.push(opt); if (sel.length > 2) sel.shift(); }
     draft[field] = sel.join(" and ");
   } else draft[field] = opt;
+  if (field === "tone" || field === "genre" || field === "tempo") draft.soundBy = "you"; // their choice now stands; a new suggestion won't replace it
   paintChips(); saveDraft(); updateRecord();
   if (field === "occasion") applyOccasion();
 }
-// Four short questions take the place of one blank box. A memory or a life story asks different ones.
-const QUESTIONS = {
-  "A favorite memory": ["What's the memory?", [
-    ["Where were you, and when?", "Grandma's porch, the summer I turned ten"],
-    ["What happened?", "She taught me to play dominoes and let me win"],
-    ["A detail you can still picture", "The sound of the tiles on the metal table"],
-    ["Why does it stay with you?", "It was the first time I felt grown up"]]],
-  "Our story": ["What's your story?", [
-    ["How did it begin?", "She raised three of us mostly on her own"],
-    ["A moment along the way", "She ran behind my bike the whole way across the lot"],
-    ["Where are things now?", "I have kids of my own and finally understand"],
-    ["How do they make you feel?", "Like I could do anything"]]],
-  "": ["What should the song say?", [
-    ["What do you love most about them?", "He shows up for everyone, every time"],
-    ["A moment with them you'll never forget", "The road trip when the truck broke down"],
-    ["Something they always say or do", "He ends every call with \"be good\""],
-    ["What do you want them to know?", "That I noticed all of it"]]]
-};
-function questions(){ return QUESTIONS[draft.occasion] || QUESTIONS[""]; }
+function questions(){ return questionsFor(draft.occasion); }
 function applyOccasion(){
+  $("#occasion-other").hidden = draft.occasion !== OTHER;
+  $("#theme-note").hidden = draft.occasion !== THEME;
+  if (draft.occasion !== OTHER) $("#occ-fix").hidden = true;
   const q = questions();
   $("#details-h").textContent = q[0];
   q[1].forEach((pair, i) => {
@@ -110,19 +130,80 @@ function buildChips(){
 }
 function syncInputs(){
   $$("[data-bind]").forEach(e => { e.value = draft[e.dataset.bind] || ""; });
+  $("#suggest-note").textContent = draft.suggestNote || "";
+  // for a song in another language: what it says in English, so the sender can check it
+  const eng = $("#english-lines"); eng.textContent = ""; $("#english-box").hidden = !draft.english;
+  if (draft.english) lyricsInto(eng, draft.english);
   paintChips(); applyOccasion(); updateRecord();
 }
 $$("[data-bind]").forEach(e => e.addEventListener("input", () => {
   draft[e.dataset.bind] = e.value; saveDraft();
-  const st = e.closest(".step"), er = st && $(".err", st); if (er) er.textContent = ""; // a fixed field clears its warning
-  if (["recipient","sender","title"].indexOf(e.dataset.bind) >= 0) updateRecord();
+  const st = e.closest(".step"); if (st) $$(".err", st).forEach(er => { er.textContent = ""; }); // a fixed field clears its warning
+  if (e.dataset.bind === "email") $("#contact-box").classList.remove("needs");
+  if (e.dataset.bind === "occasionOther") $("#occ-fix").hidden = true; // a correction on offer no longer fits what is typed
+  if (["recipient","sender","title","occasionOther"].indexOf(e.dataset.bind) >= 0) updateRecord();
 }));
+
+/* ---------- hearing a name, and speaking an answer ---------- */
+// "Hear it said": the device reads the name aloud, from the sounds-like spelling when one was given.
+// It is the phone's or computer's own voice, so it checks the spelling, not the singer.
+if ("speechSynthesis" in window && typeof SpeechSynthesisUtterance === "function"){
+  $("#hear-row").hidden = false;
+  $("#hear-btn").addEventListener("click", () => {
+    const text = (draft.sayName || draft.recipient || "").trim();
+    const st = $("#hear-btn").closest(".step"), err = st && $(".err", st);
+    if (!text){ if (err) err.textContent = "Type their name first, then tap Hear it said."; return; }
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text); u.rate = 0.85; u.lang = "en-US";
+      speechSynthesis.speak(u);
+    } catch (e) { if (err) err.textContent = "This device couldn't say it aloud."; }
+  });
+}
+// "Speak your answer": where the browser can turn speech into text, each story question gets a button for it.
+// Where it can't, the keyboard's own microphone still works, and the tip above the questions says so.
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let stopListening = () => {}; // called when the customer moves to another step
+if (typeof Recognition === "function"){
+  $("#speak-tip").textContent = "You can type, or tap Speak your answer.";
+  let active = null; // { rec, btn } while listening
+  const stop = () => { if (!active) return; const a = active; active = null; a.btn.textContent = "Speak your answer"; a.btn.setAttribute("aria-pressed", "false"); try { a.rec.stop(); } catch (e) {} };
+  stopListening = stop;
+  $$('textarea[data-bind^="a"]').forEach(area => {
+    const label = area.closest(".field"); label.classList.add("has-after");
+    const row = el("div", "after-field"), btn = el("button", "btn small", "Speak your answer"), said = el("span", "hint");
+    btn.type = "button"; btn.setAttribute("aria-pressed", "false"); said.setAttribute("role", "status");
+    row.append(btn, said); label.after(row);
+    btn.addEventListener("click", () => {
+      if (active && active.btn === btn){ stop(); return; }
+      stop(); said.textContent = "";
+      let rec;
+      try {
+        rec = new Recognition(); rec.lang = navigator.language || "en-US"; rec.interimResults = false; rec.continuous = false;
+        rec.onresult = ev => {
+          let text = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) text += ev.results[i][0].transcript;
+          text = text.trim(); if (!text) return;
+          const max = area.maxLength > 0 ? area.maxLength : 600;
+          area.value = (area.value.trim() ? area.value.trim() + " " : "") + text.charAt(0).toUpperCase() + text.slice(1);
+          if (area.value.length > max) area.value = area.value.slice(0, max);
+          area.dispatchEvent(new Event("input", { bubbles: true })); // saves it, just as typing would
+        };
+        rec.onerror = ev => { said.textContent = ev && ev.error === "no-speech" ? "Didn't catch that. Tap and try again." : "Speaking isn't available here. Use the microphone on your keyboard instead."; };
+        rec.onend = () => { if (active && active.rec === rec) stop(); };
+        rec.start();
+      } catch (e) { said.textContent = "Speaking isn't available here. Use the microphone on your keyboard instead."; return; }
+      active = { rec, btn }; btn.textContent = "Listening. Tap to stop"; btn.setAttribute("aria-pressed", "true");
+    });
+  });
+}
 
 /* ---------- moving through the steps ---------- */
 function go(n){
   if (n !== 4) stopProgress();
-  if (n !== 5) clearInterval(doneTimer);
-  step = n;
+  stopListening();
+  if (n !== 5){ clearInterval(doneTimer); clearInterval(heardTimer); }
+  const was = step; step = n;
+  if ((was === -1) !== (n === -1)) updateRecord(); // the opening page shows the two kinds of song; the steps show this one
   $("#view-make").dataset.step = String(n);
   $$(".step").forEach(s => { s.hidden = Number(s.dataset.step) !== n; });
   $("#restart-confirm").hidden = true;
@@ -132,28 +213,107 @@ function go(n){
   $("#step-label").textContent = "Step " + (Math.max(n, 0) + 1) + " of 5";
   $("#bar-fill").style.width = ((Math.max(n, 0) + 1) * 20) + "%";
   $$(".err").forEach(e => { e.textContent = ""; });
+  $("#tg-err").textContent = "";
+  $("#contact-box").classList.remove("needs");
   if (n === 2) $("#keep-btn").hidden = !draft.lyrics.trim();
   if (n === 3) $("#record-btn").textContent = ref ? "Record with these lyrics" : "Record my song";
   if (n !== 4){ if (previewAudio) previewAudio.pause(); $("#make-record").classList.remove("spinning"); }
   if (n > 0) $("#progress").scrollIntoView({ block: "start" }); else window.scrollTo(0, 0);
+  // While the story and lyrics steps are open, keep looking for what the others have added.
+  clearInterval(groupTimer);
+  if (grp && n >= 1 && n <= 3){ renderTogether(); groupTimer = setInterval(syncGroup, 20000); }
 }
 function validate(n){
   if (n === 0){
     if (!draft.recipient.trim()) return "Add their name so the song can use it.";
+    if (draft.occasion === OTHER && !(draft.occasionOther || "").trim()) return "Type the occasion, or pick one from the list.";
     if (!draft.sender.trim()) return "Add your name so they know who it's from.";
   }
-  if (n === 1 && storyParts().map(p => p[1]).join(" ").length < 20) return "Answer at least one question, in a sentence or two.";
+  // a theme can be said in two words; a story needs a sentence
+  if (n === 1 && others().length) return ""; // others have added their memories, so the organizer's own are optional
+  if (n === 1 && draft.occasion === THEME && storyParts().map(p => p[1]).join(" ").length < 8) return "Tell us the theme, in a few words.";
+  if (n === 1 && draft.occasion !== THEME && storyParts().map(p => p[1]).join(" ").length < 20) return "Answer at least one question, in a sentence or two.";
   return "";
 }
-$$("[data-next]").forEach(b => b.addEventListener("click", () => {
+$$("[data-next]").forEach(b => b.addEventListener("click", async () => {
   const msg = validate(step);
   if (msg){ $(".err", b.closest(".step")).textContent = msg; return; }
+  if (step === 0 && draft.occasion === OTHER){ // an occasion they typed: check its spelling before moving on
+    if (busy) return; busy = true; b.disabled = true;
+    const label = b.textContent; b.textContent = "Checking the spelling…";
+    const fine = await occasionSpelling();
+    b.textContent = label; b.disabled = false; busy = false;
+    if (!fine) return;
+  }
   go(step + 1);
 }));
+
+/* ---------- the spelling of an occasion the customer typed ---------- */
+// It is printed on the record and the gift page. Capital letters are put right for them; a spelling
+// correction is only offered, and the customer chooses. If the check can't be done, they simply carry on.
+let occChecked = ""; // the text that has been checked, or that they chose to keep
+async function occasionSpelling(){
+  const typed = (draft.occasionOther || "").trim();
+  if (!typed || typed === occChecked) return true;
+  let out = null;
+  try { out = await Promise.race([api("/api/spell", { method: "POST", body: { text: typed } }), new Promise(r => setTimeout(() => r(null), 9000))]); } catch (e) {}
+  if ((draft.occasionOther || "").trim() !== typed) return false; // they changed it while we were checking
+  const better = out && typeof out.text === "string" ? out.text.trim() : "";
+  if (!better || better === typed){ occChecked = typed; return true; }
+  if (better.toLowerCase() === typed.toLowerCase()){ setOccasion(better); return true; } // only the capital letters differ
+  $("#occ-better").textContent = better; $("#occ-fix").hidden = false;
+  $("#occ-use").onclick = () => { setOccasion(better); go(1); };
+  $("#occ-keep").onclick = () => { occChecked = typed; $("#occ-fix").hidden = true; go(1); };
+  return false;
+}
+function setOccasion(text){
+  draft.occasionOther = text; occChecked = text; saveDraft();
+  $('[data-bind="occasionOther"]').value = text; $("#occ-fix").hidden = true; updateRecord();
+}
 $$("[data-back]").forEach(b => b.addEventListener("click", () => go(step - 1)));
+
+/* ---------- a suggested sound ---------- */
+// After the story, Claude suggests the tone and style that fit it. They arrive already selected on the next
+// step, where the customer can change them. No suggestion (a slow or failed request) just leaves the usual defaults.
+async function suggestSound(){
+  const story = JSON.stringify([draft.recipient, draft.relationship, occasion(), storyParts(), others().map(p => p.id)]);
+  if (draft.soundBy === "you" || story === draft.suggestedFor) return;
+  let out = null;
+  try { out = await Promise.race([api("/api/suggest", { method: "POST", body: { brief: brief() } }), new Promise(r => setTimeout(() => r(null), 9000))]); } catch (e) {}
+  if (!out || !out.tone || !out.genre || draft.soundBy === "you") return;
+  draft.tone = out.tone; draft.genre = out.genre; draft.soundBy = "suggested"; draft.suggestedFor = story;
+  if (out.tempo && CHIPS.tempo.indexOf(out.tempo) >= 0) draft.tempo = out.tempo;
+  draft.suggestNote = "Suggested for your " + (draft.occasion === THEME ? "theme" : "story") + ": " + out.tone + ", " + out.genre + (out.tempo ? ", " + out.tempo.toLowerCase() + " tempo" : "") + ". "
+    + (out.why ? out.why + " " : "") + "Change anything you like.";
+  $("#suggest-note").textContent = draft.suggestNote;
+  saveDraft(); paintChips(); updateRecord();
+}
+$("#story-next").addEventListener("click", async e => {
+  const b = e.currentTarget, msg = validate(1);
+  if (msg){ $(".err", b.closest(".step")).textContent = msg; return; }
+  if (busy) return; busy = true; b.disabled = true;
+  const label = b.textContent; b.textContent = "Reading your story\u2026";
+  await syncGroup();
+  await suggestSound();
+  b.textContent = label; b.disabled = false; busy = false;
+  go(2);
+});
 $("#back-from-lyrics").addEventListener("click", () => go(ref ? 4 : 2));
 $("#keep-btn").addEventListener("click", () => go(3));
-$("#begin-btn").addEventListener("click", () => { track("started"); go(0); });
+// Two ways in from the opening page: a song about the person (their story, a memory, an occasion), or one about a theme or feeling.
+const hasStory = () => storyParts().length > 0;
+$("#begin-btn").addEventListener("click", () => {
+  if (draft.occasion === THEME && !hasStory()){ draft.occasion = "A favorite memory"; saveDraft(); syncInputs(); } // they looked at a theme song, then chose this instead
+  track("started"); go(0);
+});
+// The two records on the opening page do the same as the two buttons.
+$("#theme-record").closest(".rec-stage").prepend($("#pick-person .rings").cloneNode(true));
+$("#pick-person").addEventListener("click", () => { if (step === -1) $("#begin-btn").click(); });
+$("#pick-theme").addEventListener("click", () => { if (step === -1) $("#theme-btn").click(); });
+$("#theme-btn").addEventListener("click", () => {
+  if (draft.occasion !== THEME){ draft.occasion = THEME; saveDraft(); syncInputs(); }
+  track("started"); go(0);
+});
 
 /* ---------- progress bars ---------- */
 let progTimer = null, progBox = null;
@@ -187,11 +347,14 @@ function stopProgress(){
 }
 
 /* ---------- lyrics ---------- */
-const brief = () => ({ recipient: draft.recipient, sender: draft.sender, relationship: draft.relationship, occasion: draft.occasion,
-  tone: draft.tone, genre: draft.genre, voice: draft.voice, language: draft.language, sayName: draft.sayName, inspiration: draft.inspiration,
-  contact: draft.email, answers: storyParts().map(p => ({ q: p[0], a: p[1] })) });
+const brief = () => ({ recipient: draft.recipient, sender: draft.sender, relationship: draft.relationship, occasion: occasion(),
+  tone: draft.tone, genre: draft.genre, voice: draft.voice, tempo: draft.tempo, language: draft.language, sayName: draft.sayName, inspiration: draft.inspiration, instruments: draft.instruments,
+  contact: draft.email, answers: storyParts().map(p => ({ q: p[0], a: p[1] })), group: grp ? { id: grp.id, key: grp.key } : undefined });
+// The same, for recording: only the people whose memories the lyrics in hand were written from are signed on the song.
+const recordBrief = () => { const b = brief(); if (b.group) b.group.used = usedIds().map(Number); return b; };
 async function writeLyrics(again){
   if (busy) return; busy = true;
+  await syncGroup();
   const btn = again ? $("#again-btn") : $("#write-btn");
   const err = again ? $("#record-err") : $("#write-err");
   err.textContent = ""; btn.disabled = true; $("#keep-btn").hidden = true;
@@ -200,8 +363,9 @@ async function writeLyrics(again){
   let ok = false;
   try {
     const out = await api("/api/lyrics", { method: "POST", body: { brief: brief(), again: again ? draft.title : undefined } });
-    draft.title = out.title; draft.lyrics = out.lyrics; draft.style = out.style;
-    saveDraft(); syncInputs(); track("lyrics"); ok = true;
+    draft.title = out.title; draft.lyrics = out.lyrics; draft.style = out.style; draft.english = out.english || "";
+    draft.groupUsed = (out.usedParts || []).join(","); // whose memories these lyrics were written from
+    saveDraft(); syncInputs(); renderTogether(); track("lyrics"); ok = true;
   } catch (e) { err.textContent = e.message; }
   busy = false; btn.disabled = false;
   if (step !== 4) stopProgress();
@@ -216,16 +380,30 @@ $("#record-btn").addEventListener("click", async () => {
   if (busy) return;
   const err = $("#record-err"), btn = $("#record-btn");
   if (draft.lyrics.trim().length < 40){ err.textContent = "The song needs lyrics before it can be recorded."; return; }
-  if (!contactKind(draft.email)){ err.textContent = draft.email.trim() ? "That doesn't look like an email or a mobile number. Check it and try again." : "Add your email or mobile number so we can send you the link to your song."; return; }
-  busy = true; btn.disabled = true; err.textContent = "";
+  if (!contactOk(draft.email)){
+    // Say so right at the field, and take them to it, so it can't be missed.
+    const box = $("#contact-box"), field = $('[data-bind="email"]', box);
+    err.textContent = "";
+    $("#contact-err").textContent = emailOnly()
+      ? (draft.email.trim() ? "That doesn't look like an email address. Check it and try again." : "Add your email address so we can send you the link to your song.")
+      : draft.email.trim() ? "That doesn't look like an email or a mobile number. Check it and try again." : "Add your email or mobile number so we can send you the link to your song.";
+    box.classList.add("needs");
+    box.scrollIntoView({ block: "center", behavior: "smooth" });
+    field.focus({ preventScroll: true });
+    return;
+  }
+  busy = true; btn.disabled = true; err.textContent = ""; $("#contact-err").textContent = ""; $("#contact-box").classList.remove("needs");
   $("#again-status").textContent = "Checking the words, then starting the recording.";
   try {
     if (!ref){
-      ref = await api("/api/orders", { method: "POST", body: { brief: brief(), title: draft.title, lyrics: draft.lyrics, style: draft.style } });
+      const src = readSource();
+      ref = await api("/api/orders", { method: "POST", body: { brief: recordBrief(), title: draft.title, lyrics: draft.lyrics, style: draft.style,
+        source: { from: src.from, join: src.join, ref: src.ref, heard: src.heard } } });
       save(ORDER_KEY, ref);
       view = await call("/api/orders/" + ref.id);
+      syncGroup(); // recording closes the invitation
     } else {
-      view = await call("/api/orders/" + ref.id + "/retake", { method: "POST", body: { title: draft.title, lyrics: draft.lyrics } });
+      view = await call("/api/orders/" + ref.id + "/retake", { method: "POST", body: { title: draft.title, lyrics: draft.lyrics, style: draft.style } });
     }
     go(4); renderListen(); poll();
   } catch (e) { err.textContent = e.message; }
@@ -258,6 +436,7 @@ function renderListen(){
   const take = view.takes[view.chosen] || {}, pv = take.previewSection;
   $("#listen-lede").textContent = pv && pv.hasName
     ? "Here are " + view.previewSeconds + " seconds from the part where " + name + "'s name is sung."
+    : pv ? "Here are " + view.previewSeconds + " seconds of " + name + "'s song, starting at the " + String(pv.name).toLowerCase() + "."
     : "Here are the first " + view.previewSeconds + " seconds of " + name + "'s song.";
   const hearing = $("#hearing"); hearing.textContent = ""; hearing.hidden = !pv;
   if (pv){
@@ -279,8 +458,8 @@ function renderListen(){
   });
   const src = "/api/orders/" + view.id + "/preview/" + view.chosen;
   if (src !== previewSrc){ if (previewAudio) previewAudio.pause(); previewSrc = src; previewAudio = mountAudio($("#preview-player"), src, "Play the preview", rec, () => track("preview")); }
-  draft.title = view.title; draft.lyrics = view.lyrics; saveDraft();
-  $$('[data-bind="title"],[data-bind="lyrics"]').forEach(e => { e.value = draft[e.dataset.bind]; });
+  draft.title = view.title; draft.lyrics = view.lyrics; draft.style = view.style || draft.style; saveDraft();
+  $$('[data-bind="title"],[data-bind="lyrics"],[data-bind="style"]').forEach(e => { e.value = draft[e.dataset.bind]; });
   const left = view.takesLeft;
   $("#retake-btn").hidden = left <= 0; $("#edit-lyrics-btn").hidden = left <= 0;
   $("#take-note").textContent = view.error ? view.error : left <= 0 ? "You've used all your takes for this song." : "";
@@ -326,6 +505,7 @@ $("#pay-btn").addEventListener("click", async () => {
 function startOver(full){
   clearInterval(pollTimer); clearInterval(doneTimer); if (previewAudio) previewAudio.pause();
   ref = null; view = null; tier = "song"; previewSrc = ""; previewAudio = null; save(ORDER_KEY, null);
+  clearGroup();
   $("#preview-player").textContent = ""; $("#make-record").dataset.metal = "gold";
   const sender = draft.sender, email = draft.email; draft = blank();
   if (!full){ draft.sender = sender; draft.email = email; } // "make another song" keeps who you are; "start over" clears it all
@@ -348,8 +528,11 @@ $$("#send-how .chip").forEach(b => b.addEventListener("click", () => setHow(b.da
 function showDone(info){
   clearInterval(pollTimer); if (previewAudio) previewAudio.pause();
   const name = info.recipient || "them", url = info.giftUrl;
-  const msg = (info.recipient ? info.recipient + ", " : "") + "I made you a song. Press play: " + url;
-  draft.recipient = info.recipient || draft.recipient; draft.sender = info.sender || draft.sender; draft.title = info.title || draft.title;
+  const msg = (info.recipient ? info.recipient + ", " : "") + (info.together ? "we" : "I") + " made you a song. Press play: " + url;
+  // A song made together is signed from everyone; the organizer's own name stays theirs for the next song.
+  shownFrom = info.together ? info.sender || "" : "";
+  draft.recipient = info.recipient || draft.recipient; if (!info.together) draft.sender = info.sender || draft.sender; draft.title = info.title || draft.title;
+  $("#tg-done").textContent = info.together ? "Everyone who added their memories can hear it too, on the page where they added them, on the same phone or computer they used. They'll also see what " + name + " writes back." : "";
   updateRecord(); $("#make-record").dataset.metal = info.tier === "platinum" ? "platinum" : "gold";
   const plate = $("#done-plate"); plate.dataset.metal = info.tier === "platinum" ? "platinum" : "gold";
   $("#done-p1").textContent = "Presented to " + name;
@@ -357,7 +540,8 @@ function showDone(info){
   $("#done-p").textContent = "Send " + name + " this link. It opens a page with the song, your note, and the lyrics.";
   $("#gift-link").value = url;
   $("#sms-link").href = "sms:?&body=" + encodeURIComponent(msg);
-  $("#mail-link").href = "mailto:?subject=" + encodeURIComponent("I made you a song") + "&body=" + encodeURIComponent(msg);
+  $("#wa-link").href = "https://wa.me/?text=" + encodeURIComponent(msg); // opens WhatsApp with the message ready, to send to anyone
+  $("#mail-link").href = "mailto:?subject=" + encodeURIComponent((info.together ? "We" : "I") + " made you a song") + "&body=" + encodeURIComponent(msg);
   const share = $("#share-btn"); share.hidden = !navigator.share;
   share.onclick = () => navigator.share({ text: msg }).catch(() => {});
   $("#copy-link").onclick = async e => {
@@ -369,6 +553,12 @@ function showDone(info){
   const see = $("#see-gift"); see.href = url + "?sender=1"; see.textContent = "See " + name + "'s page";
   // Remember on this device that the song is ours, so opening the plain link here isn't taken for their first play either.
   if (info.id){ const mine = (load(MINE_KEY) || []).filter(x => x !== info.id); mine.push(info.id); save(MINE_KEY, mine.slice(-50)); }
+  // Keep the way back to this song on this device, so it can be reopened from the opening page.
+  if (ref && ref.id === info.id){
+    const songs = (load(SONGS_KEY) || []).filter(s => s && s.id !== info.id);
+    songs.push({ id: ref.id, key: ref.key, recipient: info.recipient || "", title: info.title || "" }); save(SONGS_KEY, songs.slice(-30));
+  }
+  $("#order-ref").textContent = info.id ? "Order reference: " + info.id + ". Quote it if you ever need help with this song." : "";
   $("#played-note").textContent = site.messaging && info.contactKind
     ? "We'll " + (info.contactKind === "phone" ? "text" : "email") + " you the moment " + name + " plays it." : "";
   // Scheduling needs this device's key to the song, and a message service that can really send it.
@@ -382,6 +572,161 @@ function showDone(info){
   save(DRAFT_KEY, Object.assign(blank(), { sender: draft.sender, email: draft.email }));
   go(5);
   renderExtras();
+  renderHeard();
+  renderAsk();
+  renderRemind();
+  clearInterval(heardTimer);
+  heardTimer = setInterval(async () => { // look again every half minute for a first play or a reply
+    if (step !== 5 || !ref){ clearInterval(heardTimer); return; }
+    if (view && view.status === "generating") return;
+    try { view = await call("/api/orders/" + ref.id); renderHeard(); } catch (e) {}
+  }, 30000);
+}
+
+/* ---------- what happened on their page: the first play, and anything they wrote back ---------- */
+function renderHeard(){
+  const box = $("#heard-box"), note = $("#heard-note"), list = $("#replies");
+  const mine = !!(ref && view && view.id === ref.id && view.paid);
+  box.hidden = !mine; if (!mine) return;
+  const name = view.recipient || "They", replies = view.replies || [];
+  note.textContent = view.firstPlayedAt ? name + " first played it on " + longDate(view.firstPlayedAt) + "."
+    : name + " hasn't played it yet. This page shows when they do, and anything they write back.";
+  list.textContent = "";
+  if (replies.length) list.append(el("h3", null, name + " wrote back"));
+  replies.forEach(r => list.append(el("blockquote", "reply-in", r.body), el("p", "status-line", longDate(r.at))));
+  // Kindness travelling on: songs since started from this one's page, or by the people who helped make it.
+  const n = view.passedOn || 0;
+  $("#passed-note").textContent = n ? "Kindness travels: " + (n === 1 ? "one new song has" : n + " new songs have") + " been started because of this one." : "";
+}
+
+/* ---------- one question after unlocking: how they heard about us ---------- */
+function renderAsk(){
+  const box = $("#heard-q"), chips = $("#heard-chips"), thanks = $("#heard-thanks");
+  const mine = !!(ref && view && view.id === ref.id && view.paid);
+  box.hidden = !mine || !!view.heard || !!readSource().heard || !site.heardChoices.length;
+  if (box.hidden) return;
+  chips.textContent = ""; chips.hidden = false; thanks.textContent = "";
+  site.heardChoices.forEach(choice => {
+    const b = el("button", "chip", choice); b.type = "button";
+    b.addEventListener("click", async () => {
+      writeSource({ heard: choice }); // asked once on this device; later songs carry the same answer
+      chips.hidden = true; thanks.textContent = "Thank you. That helps us reach more people.";
+      try { await call("/api/orders/" + ref.id + "/heard", { method: "POST", body: { answer: choice } }); view.heard = choice; } catch (e) {}
+    });
+    chips.append(b);
+  });
+}
+
+/* ---------- a reminder for next time ---------- */
+function renderRemind(){
+  const box = $("#remind-box"), mine = !!(ref && view && view.id === ref.id && view.paid);
+  box.hidden = !mine || !site.scheduling;
+  if (box.hidden) return;
+  const r = view.reminder;
+  $("#remind-sum").textContent = r ? "Your reminder is set" : "Want a reminder next time?";
+  $("#rm-email-field").hidden = view.contactKind === "email" || !!r;
+  $("#rm-date").value = r && r.monthDay ? "2024-" + r.monthDay : ""; // only the month and day are kept
+  $("#rm-holidays").checked = !!(r && r.holidays);
+  $("#rm-save").textContent = r ? "Save changes" : "Remind me";
+  $("#rm-off").hidden = !r;
+  $("#rm-err").textContent = "";
+  $("#rm-note").textContent = r ? "We'll email " + r.email + " a week before"
+    + (r.monthDay ? " " + new Date("2024-" + r.monthDay + "T12:00:00").toLocaleDateString(undefined, { month: "long", day: "numeric" }) + " each year" : "")
+    + (r.monthDay && r.holidays ? ", and" : "") + (r.holidays ? " each of the four holidays" : "") + "." : "";
+}
+$("#rm-save").addEventListener("click", async () => {
+  const err = $("#rm-err"); err.textContent = "";
+  const date = $("#rm-date").value, holidays = $("#rm-holidays").checked, email = $("#rm-email").value.trim();
+  if (!date && !holidays){ err.textContent = "Pick a date, or tick the holidays, so there is something to remind you about."; return; }
+  if (!$("#rm-email-field").hidden && contactKind(email) !== "email"){ err.textContent = "Add your email address so we know where to send the reminder."; return; }
+  try { const out = await call("/api/orders/" + ref.id + "/reminder", { method: "POST", body: { date, holidays, email } }); view.reminder = out.reminder; renderRemind(); }
+  catch (e) { err.textContent = e.message; }
+});
+$("#rm-off").addEventListener("click", async () => {
+  try { await call("/api/orders/" + ref.id + "/reminder", { method: "POST", body: { off: true } }); view.reminder = null; renderRemind(); $("#rm-note").textContent = "Reminder stopped."; }
+  catch (e) { $("#rm-err").textContent = e.message; }
+});
+
+/* ---------- making a song together ---------- */
+// The organizer invites others from the story step. Each of them adds their own memories on their own phone,
+// and the list here fills in as they do. The lyrics are written from everyone's answers.
+function clearGroup(){ grp = null; grpView = null; shownFrom = ""; clearInterval(groupTimer); save(GROUP_KEY, null); renderTogether(); }
+const groupBasics = () => ({ organizer: draft.sender, recipient: draft.recipient, relationship: draft.relationship, occasion: occasion() });
+const groupCall = (path, body) => api("/api/groups/" + grp.id + path, { method: "POST", headers: { "x-group-key": grp.key }, body });
+async function syncGroup(){
+  if (!grp) return;
+  try { grpView = await groupCall("/sync", groupBasics()); }
+  catch (e) { if (/not found/i.test(e.message)) clearGroup(); return; } // the invitation is gone; offline just keeps the last view
+  renderTogether(); updateRecord();
+}
+function renderTogether(){
+  $("#tg-off").hidden = !!grp; $("#tg-on").hidden = !grp;
+  const used = $("#tg-used"); used.textContent = "";
+  if (!grp) return;
+  const url = (grpView && grpView.joinUrl) || location.origin + "/join/" + grp.id, closed = !!(grpView && grpView.closed);
+  const them = draft.recipient.trim() || "someone special";
+  const msg = "I'm making a song for " + them + " on Songpost, and I'd love your memories in it. It takes two minutes: " + url;
+  $("#tg-share").hidden = closed; $("#tg-check").hidden = closed;
+  $("#tg-link").value = url;
+  $("#tg-sms").href = "sms:?&body=" + encodeURIComponent(msg);
+  $("#tg-wa").href = "https://wa.me/?text=" + encodeURIComponent(msg);
+  $("#tg-mail").href = "mailto:?subject=" + encodeURIComponent("Add your memories to a song for " + them) + "&body=" + encodeURIComponent(msg);
+  const native = $("#tg-native"); native.hidden = !navigator.share; native.onclick = () => navigator.share({ text: msg }).catch(() => {});
+  const list = $("#tg-list"), parts = grpView ? grpView.parts : []; list.textContent = "";
+  parts.forEach(p => {
+    const d = el("details", "tg-part"), sum = el("summary", null, p.name + " added " + (p.answers.length === 1 ? "one memory" : p.answers.length + " memories"));
+    d.append(sum);
+    p.answers.forEach(a => d.append(el("p", "tg-q", a.q), el("p", "tg-a", a.a)));
+    if (!closed){
+      const rm = el("button", "btn quiet small", "Leave " + p.name + "'s memories out"); rm.type = "button";
+      rm.addEventListener("click", async () => { try { grpView = await groupCall("/remove", { part: p.id }); renderTogether(); updateRecord(); } catch (e) { $("#tg-err").textContent = e.message; } });
+      d.append(rm);
+    }
+    list.append(d);
+  });
+  const names = others().map(p => p.name);
+  $("#tg-note").textContent = closed ? "The song has been recorded, so the invitation is closed."
+    : names.length ? "The song will be signed from " + listNames([draft.sender.trim() || "you"].concat(names)) + "."
+    : "Nobody has added anything yet. This list fills in as they do.";
+  // On the lyrics step: whose memories the lyrics hold, and whether anyone has added theirs since.
+  if (names.length && draft.lyrics.trim()){
+    const had = usedIds();
+    const inSong = others().filter(p => had.indexOf(String(p.id)) >= 0).map(p => p.name), late = others().filter(p => had.indexOf(String(p.id)) < 0).map(p => p.name);
+    used.textContent = (inSong.length ? "These lyrics include memories from " + listNames(inSong) + ". " : "")
+      + (late.length ? listNames(late) + (late.length === 1 ? " has" : " have") + " added memories since these lyrics were written. Tap Write different lyrics to include them. Until then, the song isn't signed from them." : "");
+  }
+}
+$("#tg-start").addEventListener("click", async e => {
+  const b = e.currentTarget, err = $("#tg-err"); err.textContent = ""; b.disabled = true;
+  try {
+    const out = await api("/api/groups", { method: "POST", body: groupBasics() });
+    grp = { id: out.id, key: out.key }; grpView = out; save(GROUP_KEY, grp);
+    renderTogether(); clearInterval(groupTimer); groupTimer = setInterval(syncGroup, 20000);
+  } catch (x) { err.textContent = x.message; }
+  b.disabled = false;
+});
+$("#tg-check").addEventListener("click", syncGroup);
+$("#tg-copy").addEventListener("click", async e => {
+  const b = e.currentTarget;
+  try { await navigator.clipboard.writeText($("#tg-link").value); b.textContent = "Copied"; }
+  catch (x) { $("#tg-link").select(); b.textContent = "Select and copy"; }
+  setTimeout(() => { b.textContent = "Copy link"; }, 1800);
+});
+
+/* ---------- the songs made on this device, listed on the opening page ---------- */
+function renderYours(){
+  const songs = (load(SONGS_KEY) || []).filter(s => s && s.id && s.key), list = $("#yours-list");
+  list.textContent = ""; $("#yours").hidden = !songs.length;
+  songs.slice().reverse().forEach(s => {
+    const b = el("button", "btn quiet", (s.recipient ? "For " + s.recipient : "Your song") + (s.title ? ": " + s.title : "")); b.type = "button";
+    b.addEventListener("click", async () => {
+      if (busy) return; busy = true;
+      try { ref = { id: s.id, key: s.key }; view = await call("/api/orders/" + s.id); save(ORDER_KEY, ref); busy = false; showDone(view); return; }
+      catch (e) { ref = null; view = null; save(SONGS_KEY, (load(SONGS_KEY) || []).filter(x => x && x.id !== s.id)); renderYours(); } // the song is gone
+      busy = false;
+    });
+    list.append(b);
+  });
 }
 
 /* ---------- after paying: the Platinum second take, and the one free redo ---------- */
@@ -461,6 +806,26 @@ $("#schedule-btn").addEventListener("click", async () => {
 });
 
 /* ---------- what people said ---------- */
+/* ---------- example songs on the opening page ---------- */
+// Chosen by the owner on the admin page. Each has a title, a line saying who made it and for whom, and a player.
+async function loadSamples(){
+  let list = [];
+  try { const r = await fetch("/samples.json"); if (r.ok) list = await r.json(); } catch (e) {}
+  list = (Array.isArray(list) ? list : []).filter(s => s && s.url);
+  const box = $("#samples-list"), players = []; box.textContent = "";
+  list.forEach(s => {
+    const fig = el("figure", "sample"); fig.append(el("p", "s-title", s.title || ""));
+    if (s.caption) fig.append(el("figcaption", null, s.caption));
+    const holder = el("div"); fig.append(holder);
+    if (s.note) fig.append(el("p", "s-note", s.note));
+    box.append(fig);
+    const audio = mountAudio(holder, s.url, "Play", null); players.push(audio);
+    audio.addEventListener("play", () => players.forEach(a => { if (a !== audio) a.pause(); })); // one at a time
+  });
+  $("#samples").hidden = !list.length;
+  $$("[data-next], #begin-btn, #theme-btn, .rec-pick").forEach(b => b.addEventListener("click", () => players.forEach(a => a.pause())));
+}
+
 async function loadVoices(){
   let list = [];
   try { const r = await fetch("/testimonials.json"); if (r.ok) list = await r.json(); } catch (e) {}
@@ -484,18 +849,36 @@ async function resume(){
   try { view = await call("/api/orders/" + ref.id); }
   catch (e) { ref = null; save(ORDER_KEY, null); return go(-1); }
   if (view.paid) return showDone(view);
-  draft.recipient = view.recipient; draft.sender = view.sender; draft.occasion = view.occasion; draft.genre = view.genre; draft.tone = view.tone || draft.tone;
+  draft.recipient = view.recipient; if (!view.together) draft.sender = view.sender; draft.occasion = view.occasion; draft.genre = view.genre; draft.tone = view.tone || draft.tone;
+  shownFrom = view.together ? view.sender : "";
+  if (CHIPS.occasion.indexOf(draft.occasion) < 0){ draft.occasionOther = draft.occasion; draft.occasion = OTHER; } // an occasion they typed themselves
   if (view.note && !draft.note) draft.note = view.note;
   syncInputs(); go(4); renderListen(); poll();
+  syncGroup();
 }
 async function init(){
   const saved = load(DRAFT_KEY);
   if (saved && typeof saved === "object") for (const k in draft) if (typeof saved[k] === "string") draft[k] = saved[k];
-  buildChips(); syncInputs(); go(-1);
+  buildChips(); syncInputs(); renderYours(); go(-1);
   try { site = Object.assign(site, await api("/api/config")); } catch (e) {}
   $(".fine").textContent = "About five minutes. You hear it before you pay. Songs from " + money(site.priceGoldCents) + ".";
-  loadVoices();
+  if (emailOnly()){ // only email is connected, so a mobile number would get nothing
+    $("#contact-label").textContent = "Your email address"; $('[data-bind="email"]').placeholder = "you@example.com";
+    $("#contact-hint").textContent = "We send you a link to this song, so it's never lost, and your receipt. It's used for nothing else.";
+    $("#to-label").textContent = "Their email address";
+  }
+  loadVoices(); loadSamples();
   const q = new URLSearchParams(location.search), oid = q.get("order"), key = q.get("key"), sid = q.get("session_id");
+  // How this visitor arrived: from a gift page (?from=), from adding to a group song (?join=), by a partner's link (?ref=),
+  // or from an occasion page (?occasion=). Remembered on this device, counted once per visit, then dropped from the address.
+  const arrived = (kind, body) => { try { if (sessionStorage.getItem("sp-" + kind)) return; sessionStorage.setItem("sp-" + kind, "1"); } catch (e) {} api("/api/track", { method: "POST", body: Object.assign({ kind }, body) }).catch(() => {}); };
+  const clipped = k => String(q.get(k) || "").trim().slice(0, 40);
+  if (clipped("from")){ writeSource({ from: clipped("from"), join: undefined, at: Date.now() }); arrived("fromgift"); }
+  else if (clipped("join")){ writeSource({ join: clipped("join"), from: undefined, at: Date.now() }); arrived("fromjoin"); }
+  if (clipped("ref")){ writeSource({ ref: clipped("ref").toLowerCase(), at: Date.now() }); arrived("ref", { code: clipped("ref").toLowerCase() }); }
+  const wanted = clipped("occasion");
+  if (!oid && (q.has("from") || q.has("join") || q.has("ref") || q.has("occasion"))) history.replaceState(null, "", "/");
+  grp = load(GROUP_KEY); if (!(grp && grp.id && grp.key)) grp = null;
   let stored = load(ORDER_KEY);
   if (oid && key){ stored = { id: oid, key }; save(ORDER_KEY, stored); } // arriving from the link we sent
   if (oid){
@@ -514,9 +897,18 @@ async function init(){
   track("arrived");
   if (stored && stored.id && stored.key){
     ref = stored;
-    try { view = await call("/api/orders/" + ref.id); } catch (e) { ref = null; save(ORDER_KEY, null); return; }
-    if (view.paid){ ref = null; view = null; save(ORDER_KEY, null); return; } // a finished song: start fresh
-    return resume();
+    try { view = await call("/api/orders/" + ref.id); } catch (e) { ref = null; view = null; save(ORDER_KEY, null); }
+    if (view && view.paid){ ref = null; view = null; save(ORDER_KEY, null); } // a finished song: start fresh
+    else if (view) return resume();
+  }
+  // An invitation whose song has already been recorded belongs to that song, not the next one.
+  if (grp){ await syncGroup(); if (grpView && grpView.closed) clearGroup(); }
+  // Arriving from an occasion page: that occasion is chosen, and the questions open straight away.
+  if (wanted){
+    // One of the listed occasions, however it was typed, selects that one. Anything else is "Another occasion", filled in.
+    const listed = CHIPS.occasion.filter(c => c !== OTHER && c.toLowerCase() === wanted.toLowerCase())[0];
+    if (listed) draft.occasion = listed; else { draft.occasion = OTHER; draft.occasionOther = wanted; }
+    saveDraft(); syncInputs(); track("started"); go(0);
   }
 }
 init();

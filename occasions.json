@@ -1,0 +1,274 @@
+[
+ {
+  "slug": "birthday",
+  "name": "Birthday",
+  "pick": "Birthday",
+  "title": "A custom birthday song, written about them",
+  "heading": "A birthday song about them, not just for them",
+  "desc": "A custom birthday song written from your own stories about them and recorded in minutes. Hear it before you pay.",
+  "intro": "Anyone can sing Happy Birthday. This is a song about the person: the thing they always say, the trip that went wrong, the way they laugh. You tell us, and Songpost writes the lyrics and records the song while you wait.",
+  "button": "Start a birthday song",
+  "forWhat": "a birthday song",
+  "tell": [
+   "A moment with them you'll never forget.",
+   "Something they always say or do.",
+   "What you want them to know this year."
+  ],
+  "together": "A birthday song is even better from the whole family or a group of friends."
+ },
+ {
+  "slug": "anniversary",
+  "name": "Anniversary",
+  "pick": "Anniversary",
+  "title": "A custom anniversary song from your own story",
+  "heading": "An anniversary song that tells your story",
+  "desc": "Turn how you met and the years since into an anniversary song, written and recorded in minutes. Hear it before you pay.",
+  "intro": "Where you met. The first place you lived. What you still do every Sunday. Songpost turns the story of the two of you into a song, with their name sung in the chorus.",
+  "button": "Start an anniversary song",
+  "forWhat": "an anniversary song",
+  "tell": [
+   "How it began: where you were, and when.",
+   "A moment along the way that only the two of you know.",
+   "Where things are now, and how they make you feel."
+  ],
+  "together": "Children can make one together for their parents' anniversary."
+ },
+ {
+  "slug": "wedding",
+  "name": "Wedding",
+  "pick": "Wedding",
+  "title": "A custom wedding song for the couple",
+  "heading": "A wedding song written for the two of them",
+  "desc": "A custom wedding song made from the couple's own story: a gift from a parent, a friend, or the whole wedding party. Recorded in minutes.",
+  "intro": "A song for the couple that could only be about them: how they met, what everyone saw before they did, what you wish for them. A gift nobody else will bring.",
+  "button": "Start a wedding song",
+  "forWhat": "a wedding song",
+  "tell": [
+   "How the two of them met, as you remember it.",
+   "The moment you knew they were right for each other.",
+   "What you wish for them."
+  ],
+  "together": "The wedding party, or both families, can each add a memory."
+ },
+ {
+  "slug": "retirement",
+  "name": "Retirement",
+  "pick": "Retirement",
+  "title": "A retirement song for a coworker or parent",
+  "heading": "A retirement song for someone who earned it",
+  "desc": "A custom retirement song for a coworker, boss or parent, written from your stories about them and recorded in minutes.",
+  "intro": "Thirty years of early mornings deserve more than a card passed around the office. Tell us what they were like to work with, and Songpost writes and records a song about them.",
+  "button": "Start a retirement song",
+  "forWhat": "a retirement song",
+  "tell": [
+   "What they were known for at work.",
+   "A story the whole team still tells.",
+   "What they plan to do next."
+  ],
+  "together": "The whole team can add a memory each, so the song comes from everyone who worked with them."
+ },
+ {
+  "slug": "work-anniversary",
+  "name": "Work anniversary",
+  "pick": "Work anniversary",
+  "title": "A work anniversary song for a colleague",
+  "heading": "A song for a work anniversary",
+  "desc": "Mark a colleague's years of service with a custom song about them, written from the team's stories and recorded in minutes.",
+  "intro": "Five years, ten, twenty-five. A song about what they bring to the place is a thank-you people remember and play again.",
+  "button": "Start a work anniversary song",
+  "forWhat": "a work anniversary song",
+  "tell": [
+   "What the team relies on them for.",
+   "Something they always say or do.",
+   "A moment that shows who they are."
+  ],
+  "together": "Colleagues can each add a line of their own."
+ },
+ {
+  "slug": "bosses-day",
+  "name": "Boss's Day",
+  "pick": "Boss's Day",
+  "title": "A Boss's Day song from the team",
+  "heading": "A Boss's Day song from the whole team",
+  "desc": "A custom song for Boss's Day, written from the team's own stories and recorded in minutes. Hear it before you pay.",
+  "intro": "A good boss is hard to thank well. A song made from the team's own stories does it with warmth and a little fun.",
+  "button": "Start a Boss's Day song",
+  "forWhat": "a Boss's Day song",
+  "tell": [
+   "What they do that makes the work better.",
+   "Something they always say.",
+   "A time they stood up for the team."
+  ],
+  "together": "Everyone on the team can add a memory from their own phone."
+ },
+ {
+  "slug": "thank-you",
+  "name": "Thank you",
+  "pick": "Thank you",
+  "title": "A thank-you song for someone who went out of their way",
+  "heading": "A thank-you they can play again",
+  "desc": "Say thank you with a custom song about what they did and why it mattered. Written and recorded in minutes.",
+  "intro": "For the teacher, the nurse, the neighbor, the friend who showed up. Tell us what they did and what it meant, and Songpost turns it into a song.",
+  "button": "Start a thank-you song",
+  "forWhat": "a thank-you song",
+  "tell": [
+   "What they did.",
+   "What it changed for you.",
+   "What you want them to know."
+  ],
+  "together": "If several of you have the same person to thank, each can add what they remember."
+ },
+ {
+  "slug": "mothers-day",
+  "name": "Mother's Day",
+  "pick": "Mother's Day",
+  "title": "A custom Mother's Day song about your mom",
+  "heading": "A Mother's Day song about her",
+  "desc": "A custom song for Mother's Day, written from your own memories of her and recorded in minutes. Hear it before you pay.",
+  "intro": "How she raised you. What the kitchen sounded like. The thing she still says when you leave. Tell us, and Songpost writes and records a song about her.",
+  "button": "Start a Mother's Day song",
+  "forWhat": "a Mother's Day song",
+  "tell": [
+   "A memory of her from when you were small.",
+   "Something she always says or does.",
+   "What you understand now that you didn't then."
+  ],
+  "together": "Sisters and brothers can make one song together: each adds their own memories of her."
+ },
+ {
+  "slug": "fathers-day",
+  "name": "Father's Day",
+  "pick": "Father's Day",
+  "title": "A custom Father's Day song about your dad",
+  "heading": "A Father's Day song about him",
+  "desc": "A custom song for Father's Day, written from your own memories of him and recorded in minutes. Hear it before you pay.",
+  "intro": "The truck, the workshop, the advice you didn't want and later used. Tell us about him, and Songpost writes and records a song he will play more than once.",
+  "button": "Start a Father's Day song",
+  "forWhat": "a Father's Day song",
+  "tell": [
+   "Something he taught you.",
+   "What he always says.",
+   "A time he showed up when it counted."
+  ],
+  "together": "Brothers and sisters can make one song together: each adds their own memories of him."
+ },
+ {
+  "slug": "valentines-day",
+  "name": "Valentine's Day",
+  "pick": "Valentine's Day",
+  "title": "A custom Valentine's Day song",
+  "heading": "A Valentine's song with your story in it",
+  "desc": "A custom love song for Valentine's Day, written from how the two of you met and what you love about them. Recorded in minutes.",
+  "intro": "Flowers last a week. A song about how you met, with their name in the chorus, gets played for years.",
+  "button": "Start a Valentine's song",
+  "forWhat": "a Valentine's song",
+  "tell": [
+   "How you met.",
+   "The small thing they do that you love.",
+   "What you want them to know."
+  ],
+  "together": "This one is usually from one person. For a parent or grandparent, the family can make it together."
+ },
+ {
+  "slug": "christmas",
+  "name": "Christmas",
+  "pick": "Christmas",
+  "title": "A custom Christmas song as a gift",
+  "heading": "A Christmas gift nobody else will give them",
+  "desc": "A custom song as a Christmas gift, written from your memories of them and ready in minutes, so it is never too late to send.",
+  "intro": "For the person who has everything, or the one who is far away this year. A song about them arrives in minutes, by text or email, with nothing to wrap.",
+  "button": "Start a Christmas song",
+  "forWhat": "a Christmas gift song",
+  "tell": [
+   "A Christmas you spent together.",
+   "What you love most about them.",
+   "What you wish for them in the year ahead."
+  ],
+  "together": "The whole family can add a memory each for a grandparent or a parent."
+ },
+ {
+  "slug": "new-baby",
+  "name": "New baby",
+  "pick": "New baby",
+  "title": "A lullaby for a new baby, with their name in it",
+  "heading": "A lullaby with their name in it",
+  "desc": "A custom lullaby or welcome song for a new baby, written from the family's own words and recorded in minutes.",
+  "intro": "A song to welcome them, with their name in the chorus and their family's hopes in the verses. A keepsake they can hear when they are grown.",
+  "button": "Start a song for a new baby",
+  "forWhat": "a song for a new baby",
+  "tell": [
+   "Their name, and how it was chosen.",
+   "What the day they arrived was like.",
+   "What you hope for them."
+  ],
+  "together": "Grandparents, aunts and uncles can each add a wish."
+ },
+ {
+  "slug": "graduation",
+  "name": "Graduation",
+  "pick": "Graduation",
+  "title": "A graduation song about the graduate",
+  "heading": "A graduation song about how far they came",
+  "desc": "A custom graduation song written from your stories about the graduate and recorded in minutes. Hear it before you pay.",
+  "intro": "The late nights, the doubts, the day it clicked. Tell us what it took, and Songpost writes a song that says how proud you are.",
+  "button": "Start a graduation song",
+  "forWhat": "a graduation song",
+  "tell": [
+   "What they were like when they started.",
+   "A moment that showed what they are made of.",
+   "What you see ahead for them."
+  ],
+  "together": "Parents, grandparents and friends can each add a memory."
+ },
+ {
+  "slug": "get-well",
+  "name": "Get well",
+  "pick": "Get well",
+  "title": "A get-well song to lift their spirits",
+  "heading": "A song to lift their spirits",
+  "desc": "Send a custom song to someone who is unwell or having a hard time. Written from your own words and recorded in minutes.",
+  "intro": "When you can't be in the room, a song can be. Tell us what makes them laugh and what you want them to remember, and Songpost does the rest.",
+  "button": "Start a get-well song",
+  "forWhat": "a get-well song",
+  "tell": [
+   "What always makes them smile.",
+   "A good memory to take them back to.",
+   "What you want them to know while they rest."
+  ],
+  "together": "Friends, family or a team of colleagues can each add a few words."
+ },
+ {
+  "slug": "just-because",
+  "name": "Just because",
+  "pick": "Just because",
+  "title": "A custom song for someone, just because",
+  "heading": "A song for no reason at all",
+  "desc": "A custom song about someone you love, for no occasion at all. Written from your story and recorded in minutes.",
+  "intro": "The best time to tell someone what they mean to you is before there is a reason to. A few sentences from you become a song about them.",
+  "button": "Start a song",
+  "forWhat": "a just-because song",
+  "tell": [
+   "What you love most about them.",
+   "A moment with them you'll never forget.",
+   "What you want them to know."
+  ],
+  "together": "A group of friends or a family can make one song together."
+ },
+ {
+  "slug": "theme-or-feeling",
+  "name": "A theme or feeling",
+  "pick": "A theme or feeling",
+  "title": "A custom song about a theme or a feeling",
+  "heading": "A song about a theme or a feeling",
+  "desc": "Send a custom song about a theme or a feeling, such as young love, growing old together or coming home. Written and recorded in minutes, and dedicated to the person you send it to.",
+  "intro": "Not every song has to tell someone's life story. Pick a theme or a feeling, such as young love, growing old together or coming home, and Songpost writes and records a song about it. Their name is sung once at the end, as a dedication.",
+  "button": "Start a theme song",
+  "forWhat": "a song about a theme or a feeling",
+  "tell": [
+   "The theme, in a few words.",
+   "What it should make them feel.",
+   "Pictures or moments to put in it: a gravel road, a porch light, a first slow dance."
+  ],
+  "together": "Friends or family can each add a picture or a moment of their own."
+ }
+]

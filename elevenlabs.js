@@ -12,8 +12,25 @@ const SECTION_HINTS = [
   [/intro/i, ['instrumental intro']],
 ];
 
+// A style descriptor can be about one part of the song ("stripped bridge", "big final chorus", "sing-along hook").
+// It is sent with that part, not with the whole song. Returns which part, or null for the song as a whole.
+function partOf(descriptor) {
+  if (/\b(final|last)\s+chorus\b/i.test(descriptor)) return 'final chorus';
+  if (/\bbridge\b/i.test(descriptor)) return 'bridge';
+  if (/\b(chorus(es)?|hook|refrain)\b/i.test(descriptor)) return 'chorus';
+  if (/\bverses?\b/i.test(descriptor)) return 'verse';
+  if (/\bintro\b/i.test(descriptor)) return 'intro';
+  if (/\b(outro|ending)\b/i.test(descriptor)) return 'outro';
+  return null;
+}
+const isTempo = d => /\b\d{2,3}\s*bpm\b|\btempo\b/i.test(d);
+
 function buildPlan(song) {
-  const base = String(song.style || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 12);
+  const all = String(song.style || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 16);
+  const cues = all.filter(partOf).map(text => ({ text, part: partOf(text) }));
+  const base = all.filter(d => !partOf(d));
+  // What every part of the song is given: the first five descriptors, and the tempo wherever it was written.
+  const every = base.slice(0, 5).concat(base.slice(5).filter(isTempo));
   if (song.voice === 'male') base.push('male lead vocal');
   if (song.voice === 'female') base.push('female lead vocal');
   if (song.voice === 'duet') base.push('male and female duet vocals', 'harmonies on the chorus');
@@ -27,14 +44,17 @@ function buildPlan(song) {
   const introAdded = !/intro/i.test(sections[0].name);
   if (introAdded) sections = [{ name: 'Intro', lines: [] }].concat(sections).slice(0, 30);
 
+  const lastChorus = sections.map(s => /chorus/i.test(s.name)).lastIndexOf(true);
+  const about = (s, i) => cues.filter(c => (c.part === 'final chorus' ? i === lastChorus
+    : c.part === 'outro' ? /outro|ending/i.test(s.name) : new RegExp(c.part, 'i').test(s.name))).map(c => c.text);
   let chunks = sections.map((s, i) => {
-    const hint = (SECTION_HINTS.find(([re]) => re.test(s.name)) || [null, []])[1];
+    const hint = (SECTION_HINTS.find(([re]) => re.test(s.name)) || [null, []])[1].concat(about(s, i));
     return {
       text: `[${s.name}]` + (s.lines.length ? '\n' + s.lines.join('\n') : ''),
       // ElevenLabs' own examples run about four seconds a line; a little more keeps the singing unhurried.
       duration_ms: s.lines.length ? Math.min(60000, Math.max(8000, Math.round(s.lines.length * cfg.elevenSecondsPerLine * 1000))) : 6000,
       // The first chunk's styles set the tone for the whole song.
-      positive_styles: (i === 0 ? base : base.slice(0, 5)).concat(hint).slice(0, 50),
+      positive_styles: (i === 0 ? base : every).concat(hint).slice(0, 50),
       negative_styles: negative,
       context_adherence: 'high',
     };
@@ -65,8 +85,10 @@ async function generate(song) {
     if (/bad_composition_plan|bad_prompt/.test(body)) {
       throw new PublicError('The music service turned down part of the lyrics or style, usually because it names a real artist or song. Change that and try again.', 422);
     }
-    if (res.status === 429) throw new PublicError('The studio is busy. Try again in a minute.', 429);
-    throw new PublicError('The recording did not finish. Try again.', 502);
+    // detail is for the owner's health table on the admin page; the customer only sees the plain message.
+    const detail = `ElevenLabs answered ${res.status}: ${body.replace(/\s+/g, ' ').slice(0, 220)}`;
+    if (res.status === 429) throw Object.assign(new PublicError('The studio is busy. Try again in a minute.', 429), { detail });
+    throw Object.assign(new PublicError('The recording did not finish. Try again.', 502), { detail });
   }
   const audio = Buffer.from(await res.arrayBuffer());
   if (audio.length < 1000) throw new PublicError('The recording did not finish. Try again.', 502);

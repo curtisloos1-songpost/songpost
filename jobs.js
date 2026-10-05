@@ -49,9 +49,13 @@ function makePreview(audio, mime, durationSec, previewSec, startSec) {
 // Which section of the lyrics the preview should open on: the first one that sings the name, else the chorus.
 function previewTarget(lyrics, recipient) {
   const sections = parseSections(lyrics), want = String(recipient || '').trim().toLowerCase();
-  let i = want ? sections.findIndex(s => s.lines.some(l => l.toLowerCase().includes(want))) : -1;
+  const names = s => s.lines.some(l => l.toLowerCase().includes(want));
+  // The first verse, chorus or bridge that sings the name. A name that only appears in the outro (a theme
+  // song's dedication) doesn't count: the preview would be the last few seconds of the song.
+  let i = want ? sections.findIndex(s => names(s) && !/outro|ending|intro/i.test(s.name)) : -1;
   const hasName = i >= 0;
   if (i < 0) i = sections.findIndex(s => /chorus/i.test(s.name));
+  if (i < 0 && want) i = sections.findIndex(names);
   if (i < 0) return null;
   return { index: i, name: sections[i].name, lines: sections[i].lines.slice(0, 4), hasName };
 }
@@ -84,6 +88,7 @@ async function run(id) {
     const engine = getEngine();
     const voice = /duet/i.test(order.voice) ? 'duet' : /woman/i.test(order.voice) ? 'female' : /man/i.test(order.voice) ? 'male' : 'any';
     const out = await engine.generate({ title: order.title, style: order.style, lyrics: sungLyrics(order), voice, genre: order.genre, tone: order.tone });
+    db.noteOk('music');
     const fresh = db.getOrder(id);
     if (!fresh) return; // the song was deleted while it was recording
     const n = fresh.takes.length;
@@ -103,12 +108,16 @@ async function run(id) {
     // the song was paid for, is added without changing the recording the customer chose.
     if (kind === 'redo' || (kind === 'take' && !fresh.paid)) patch.chosen = takes.length - 1;
     db.updateOrder(id, patch);
+    // Count the music made, for the cost figures on the admin page.
+    try { db.addUsage('rec_' + kind, 1, out.durationSec || 0); } catch (e) { /* counting never blocks a song */ }
     if (kind === 'redo') {
       notify.send(id, fresh.contact, `Your new recording for ${fresh.recipient} is ready`,
         `We recorded your song for ${fresh.recipient} again. The new recording is on the same link:\n${cfg.baseUrl}/g/${id}`);
     }
   } catch (e) {
     console.error('Recording failed for order', id, e);
+    // A song the music service turned down for its words (422) is the customer's to fix, not an outage.
+    if (!(e && e.status === 422)) db.noteErr('music', (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed');
     fail(id, e.publicMessage || 'The recording did not finish. Try again.');
   }
 }

@@ -13,10 +13,14 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   const metal = g.tier === "platinum" ? "platinum" : "gold";
   root.append(el("p", "for", "For " + g.recipient));
   root.append(el("h1", null, g.sender + " made you a song."));
+  if (g.fromAll) root.append(el("p", "from-all", "From " + g.fromAll)); // a song made together: everyone it is from
+  // Someone who goes on to make a song from here is counted as coming from this gift. The sender's own visit is not.
+  const makeHref = fromSender ? "/" : "/?from=" + encodeURIComponent(id);
 
-  const rec = el("div", "record"); rec.dataset.metal = metal; rec.innerHTML = recordSVG(g);
+  const rec = el("div", "record"); rec.dataset.metal = metal; setRecord(rec, g);
   const shape = shapeFor(g.tone);
   const stage = el("div", "rec-stage sealed shape-" + shape); stage.innerHTML = shapeSVG(shape); stage.append(rec); root.append(stage);
+  fitLabel(rec); // now it is on the page, the writing can be measured
   const openRow = el("div", "open-row");
   const openBtn = el("button", "btn light big", "Play your song"); openBtn.type = "button";
   openRow.append(openBtn); root.append(openRow);
@@ -82,7 +86,7 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   reply.append(el("h3", null, "Tell " + g.sender + " what you thought"));
   const words = el("textarea"); words.maxLength = 600; words.setAttribute("aria-label", "Your message to " + g.sender);
   const share = el("label", "check"); const cb = el("input"); cb.type = "checkbox";
-  share.append(cb, document.createTextNode(" Songpost may share my words with others"));
+  share.append(cb, document.createTextNode(" Songpost may share my words and first name with others"));
   const sendBtn = el("button", "btn primary", "Send to " + g.sender); sendBtn.type = "button";
   const sent = el("p", "status-line"); sent.setAttribute("role", "status");
   sendBtn.addEventListener("click", async () => {
@@ -90,14 +94,23 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
     sendBtn.disabled = true;
     try {
       await api("/api/gift/" + encodeURIComponent(id) + "/reply", { method: "POST", body: { body: words.value, shareOk: cb.checked } });
-      sent.textContent = "Sent to " + g.sender + "."; words.readOnly = true;
+      sent.textContent = g.together ? (g.replyIsSent ? "Sent. " : "Saved. ") + "Everyone who made the song will see it."
+        : g.replyIsSent ? "Sent to " + g.sender + "." : "Saved for " + g.sender + ". They'll see it on their page for this song.";
+      words.readOnly = true; share.hidden = true; rrow.hidden = true;
+      // The moment after saying thank you is the one time we ask: is there someone they would like to do this for?
+      if (!fromSender){
+        pass.textContent = "";
+        pass.append(el("span", null, "Is there someone you'd like to surprise the same way? "));
+        const go = el("a", "btn", "Make a song for someone"); go.href = makeHref; pass.append(go);
+        reply.after(pass);
+      }
     } catch (e) { sent.textContent = e.message; sendBtn.disabled = false; }
   });
   const rrow = el("div", "row"); rrow.append(sendBtn);
   reply.append(words, share, rrow, sent); sheet.append(reply);
 
   const pass = el("p", "pass"); pass.append(document.createTextNode("Kindness travels. "));
-  const again = el("a", "btn quiet", "Make a song for someone"); again.href = "/";
+  const again = el("a", "btn quiet", "Make a song for someone"); again.href = makeHref;
   pass.append(again); sheet.append(pass);
 
   // Anyone can flag a song for review.
