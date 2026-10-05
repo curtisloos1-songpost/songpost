@@ -197,9 +197,16 @@
             <textarea class="lyrics-edit" data-bind="lyrics" maxlength="4500" dir="auto"></textarea>
           </label>
           <label class="field">How it will sound
-            <span class="hint">Written from your choices, and given to the studio with the lyrics. Change anything you like: the instruments, the tempo, the feel, or one part of the song ("stripped bridge", "big final chorus"). Describe the sound; don't name artists or songs.</span>
-            <textarea class="short sound-edit" data-bind="style" maxlength="400"></textarea>
+            <span class="hint">Written from your choices, and given to the studio with the lyrics. Change anything you like: the instruments, the tempo, the feel, or one part of the song ("stripped bridge", "big final chorus"). Describe the sound; don't name artists or songs. If you change the sound a lot, look at the part-by-part notes below too.</span>
+            <textarea class="short sound-edit" data-bind="style" maxlength="600"></textarea>
           </label>
+          <details class="promise" id="arr-box">
+            <summary>Part by part: the producer's notes</summary>
+            <label class="field">What changes in each part of the song
+              <span class="hint">Also given to the studio: what plays and how it is sung in each part, one line each, and what to avoid. Change anything, or leave it as it is. Write "no" before something to take it out of a part ("no drums").</span>
+              <textarea class="short sound-edit" data-bind="arrangement" maxlength="2000" rows="9" style="box-sizing:border-box"></textarea>
+            </label>
+          </details>
           <details class="promise" id="english-box" hidden>
             <summary>What the lyrics say in English</summary>
             <p class="status-line">The meaning of the lyrics as they were written, line for line. It is for reading only, is not sung, and doesn't change if you edit the lyrics.</p>

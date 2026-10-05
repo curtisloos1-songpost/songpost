@@ -64,6 +64,8 @@ addColumns('orders', ['gen_started_at INTEGER', 'language TEXT', 'say_name TEXT'
 // chain_depth: how many songs in a row led to this one. ref_code: the partner link the buyer arrived by. heard: their answer to
 // "How did you hear about us?".
 addColumns('orders', ['group_id TEXT', 'group_names TEXT', 'via TEXT', 'from_order TEXT', 'chain_depth INTEGER NOT NULL DEFAULT 0', 'ref_code TEXT', 'heard TEXT']);
+// arrangement: the producer's notes sent to the studio with the style (what changes from part to part, and what to avoid).
+addColumns('orders', ['arrangement TEXT']);
 addColumns('events', ['order_id TEXT']);
 // featured: a reply the recipient allowed to be shared, which the owner has chosen to show on the site as a testimonial.
 addColumns('replies', ['featured INTEGER NOT NULL DEFAULT 0']);
@@ -91,7 +93,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY AUTOINCREMEN
 
 const COLUMNS = ['status', 'error', 'paid', 'paid_at', 'price_cents', 'stripe_session', 'title', 'lyrics', 'style', 'note',
   'takes_json', 'chosen', 'attempts', 'engine', 'gen_started_at', 'tier', 'schedule_to', 'schedule_date', 'schedule_sent_at',
-  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard'];
+  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement'];
 
 function hydrate(row) {
   if (!row) return null;
@@ -116,11 +118,11 @@ module.exports = {
   createOrder(o) {
     db.prepare(`INSERT INTO orders (id, key, created_at, status, price_cents, recipient, sender, relationship, occasion,
       tone, genre, voice, details, title, lyrics, style, note, attempts, ip, language, say_name, contact, gen_started_at, gen_kind, gen_event_id,
-      group_id, group_names, via, from_order, chain_depth, ref_code, heard)
+      group_id, group_names, via, from_order, chain_depth, ref_code, heard, arrangement)
       VALUES (@id, @key, @created_at, @status, @price_cents, @recipient, @sender, @relationship, @occasion,
       @tone, @genre, @voice, @details, @title, @lyrics, @style, @note, @attempts, @ip, @language, @say_name, @contact, @gen_started_at, @gen_kind, @gen_event_id,
-      @group_id, @group_names, @via, @from_order, @chain_depth, @ref_code, @heard)`)
-      .run(Object.assign({ gen_kind: 'take', gen_event_id: null, group_id: null, group_names: null, via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null }, o));
+      @group_id, @group_names, @via, @from_order, @chain_depth, @ref_code, @heard, @arrangement)`)
+      .run(Object.assign({ gen_kind: 'take', gen_event_id: null, group_id: null, group_names: null, via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null, arrangement: '' }, o));
   },
   getOrder(id) {
     return hydrate(db.prepare('SELECT * FROM orders WHERE id = ?').get(String(id || '')));

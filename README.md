@@ -12,7 +12,7 @@ page after paying.
 1. **Opening page.** Two records, one for each kind of song: about the person, or about a theme or a feeling. Tapping a record, or the button for it ("Start their song", "Start a theme song"), starts that kind.
 2. **Who it's for.** Names, how to say the name, and what the song is for: a memory, a life story, an occasion, or "a theme or feeling" (young love, growing old together), which is a song about a subject and not about the person's own story. A theme song sings the name once, as a dedication in the outro.
 3. **The story.** Four short questions that change with the kind of song. Below them, "Making this with others?" lets the customer invite sisters, brothers, friends or a team to add their own memories (see "Songs made together").
-4. **The sound.** (Since 0.8.6 this step also has "Instruments to feature", and the lyrics step shows "How it will sound", which the customer can edit.) Claude reads the story and suggests a tone and a style, which arrive already selected with a line saying why. Claude also suggests a tempo. The customer can change any of them (tone and style: one, or two blended; tempo: slow, medium, upbeat, or "let the song decide"), names artists whose sound they like in a boxed field under Style, and picks the song language and who sings.
+4. **The sound.** (Since 0.8.6 this step also has "Instruments to feature", and the lyrics step shows "How it will sound", which the customer can edit. Since 0.8.7 the lyrics step also has "Part by part: the producer's notes".) Claude reads the story and suggests a tone and a style, which arrive already selected with a line saying why. Claude also suggests a tempo. The customer can change any of them (tone and style: one, or two blended; tempo: slow, medium, upbeat, or "let the song decide"), names artists whose sound they like in a boxed field under Style, and picks the song language and who sings.
 5. **Lyrics.** Claude writes them. The customer edits them and gives an email or mobile number, in a panel of its own just above the Record button.
 6. **Preview.** The music engine records the song. The preview opens on the part where the name is sung, when the engine reports section timing.
 7. **Pay.** Gold or Platinum, through Stripe Checkout.
@@ -237,6 +237,19 @@ checking by ear. Do the first live run with Stripe in test mode.
 - ElevenLabs' terms are confirmed to cover selling songs to consumers.
 - A message provider is connected and tested.
 - `DATA_DIR` is backed up.
+
+## What changed in 0.8.7
+
+Everything Claude knows about how the song should sound now reaches the studio.
+
+- **Producer's notes, part by part.** With the lyrics and the sound description, Claude now writes a line for each part of the song (intro, each verse, the chorus, the bridge, the final chorus, the ending) saying which instruments carry it, how full it is and how it is sung, and a last line of sounds to avoid. Each line is sent to ElevenLabs with that part only; "no drums" in a part is sent as something to avoid there; the "Avoid" line is sent with every part. The buyer can read and change the notes under **Part by part: the producer's notes** on the lyrics step. They are checked with the lyrics before recording.
+- **The whole sound description goes to every part.** Before, the parts after the opening were given only its first five descriptors and the tempo, so the mood, the production and later instruments were said once. Now every part carries all of it, with the voice.
+- **Standing notes on quality.** Every part is told "radio-ready mix" and "professional studio recording" as well as the clear lead vocal and polished production, and is told to avoid low quality, demo recordings, muffled or robotic vocals, off-key singing, distortion and background noise. These step aside when the description asks for such a sound on purpose (a lo-fi song, a fuzz guitar).
+- **A more exact sound description.** Claude is asked for 10 to 14 descriptors, with the key where it matters and each instrument with how it is played ("fingerpicked acoustic guitar").
+- **A safety net.** If ElevenLabs ever turns the fuller plan down, the song is recorded straight away from the plain plan used before this version, and the customer notices nothing. The admin page marks such a song in the Takes column, so you can tell.
+- **The sound stays with the take.** Choosing an earlier take, or using the free redo, now records with that take's own sound description and notes, not those of whichever take was recorded last.
+- Where the producer's notes say nothing about a part (and for songs written before this version), Songpost's own notes for choruses, bridges and endings are used as before.
+- Not changed: how long each part runs, the length of the song, and the music model. Not yet heard: like 0.8.6, this changes what ElevenLabs is asked for and has been checked in what is sent, not by ear.
 
 ## What changed in 0.8.6
 

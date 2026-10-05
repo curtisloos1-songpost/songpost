@@ -87,7 +87,7 @@ async function run(id) {
   try {
     const engine = getEngine();
     const voice = /duet/i.test(order.voice) ? 'duet' : /woman/i.test(order.voice) ? 'female' : /man/i.test(order.voice) ? 'male' : 'any';
-    const out = await engine.generate({ title: order.title, style: order.style, lyrics: sungLyrics(order), voice, genre: order.genre, tone: order.tone });
+    const out = await engine.generate({ title: order.title, style: order.style, lyrics: sungLyrics(order), voice, genre: order.genre, tone: order.tone, arrangement: order.arrangement || '' });
     db.noteOk('music');
     const fresh = db.getOrder(id);
     if (!fresh) return; // the song was deleted while it was recording
@@ -102,7 +102,8 @@ async function run(id) {
     const genSeconds = fresh.gen_started_at ? Math.round((Date.now() - fresh.gen_started_at) / 1000) : null;
     const takes = fresh.takes.concat({ file, preview, mime: out.mime, duration: out.durationSec, genSeconds, engine: engine.name,
       previewSection: at != null ? { name: target.name, lines: target.lines, hasName: target.hasName } : null,
-      title: order.title, lyrics: order.lyrics, style: order.style });
+      title: order.title, lyrics: order.lyrics, style: order.style, arrangement: order.arrangement || '',
+      plain: out.plan === 'plain' || undefined }); // plain: the studio turned down the full plan, and the plain one was used
     const patch = { status: 'ready', error: null, takes, engine: engine.name, gen_kind: null, gen_event_id: null };
     // A redo replaces the song on the gift page. A Platinum second take, or a preview that finishes after
     // the song was paid for, is added without changing the recording the customer chose.

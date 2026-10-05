@@ -15,7 +15,7 @@ const SHOW = { occasion: 6, tone: 5, genre: 5, language: 7, instruments: 6 }; //
 // suggestNote: the line that explains the suggestion. suggestedFor: the story it was made from.
 const blank = () => ({recipient:"",relationship:"",occasion:"A favorite memory",sender:"",a1:"",a2:"",a3:"",a4:"",sayName:"",email:"",
   tone:"Heartfelt",genre:"Acoustic folk",voice:"No preference",tempo:"Let the song decide",language:"English",inspiration:"",title:"",lyrics:"",style:"",note:"",
-  soundBy:"",suggestNote:"",suggestedFor:"",occasionOther:"",english:"",groupUsed:"",instruments:""});
+  soundBy:"",suggestNote:"",suggestedFor:"",occasionOther:"",english:"",groupUsed:"",instruments:"",arrangement:""});
 // A song about a subject (young love, growing old) rather than about the person's own story.
 const THEME = "A theme or feeling";
 // "Another occasion" lets the customer type any day at all. occasion() is what the song is really for.
@@ -363,7 +363,7 @@ async function writeLyrics(again){
   let ok = false;
   try {
     const out = await api("/api/lyrics", { method: "POST", body: { brief: brief(), again: again ? draft.title : undefined } });
-    draft.title = out.title; draft.lyrics = out.lyrics; draft.style = out.style; draft.english = out.english || "";
+    draft.title = out.title; draft.lyrics = out.lyrics; draft.style = out.style; draft.arrangement = out.arrangement || ""; draft.english = out.english || "";
     draft.groupUsed = (out.usedParts || []).join(","); // whose memories these lyrics were written from
     saveDraft(); syncInputs(); renderTogether(); track("lyrics"); ok = true;
   } catch (e) { err.textContent = e.message; }
@@ -397,13 +397,13 @@ $("#record-btn").addEventListener("click", async () => {
   try {
     if (!ref){
       const src = readSource();
-      ref = await api("/api/orders", { method: "POST", body: { brief: recordBrief(), title: draft.title, lyrics: draft.lyrics, style: draft.style,
+      ref = await api("/api/orders", { method: "POST", body: { brief: recordBrief(), title: draft.title, lyrics: draft.lyrics, style: draft.style, arrangement: draft.arrangement,
         source: { from: src.from, join: src.join, ref: src.ref, heard: src.heard } } });
       save(ORDER_KEY, ref);
       view = await call("/api/orders/" + ref.id);
       syncGroup(); // recording closes the invitation
     } else {
-      view = await call("/api/orders/" + ref.id + "/retake", { method: "POST", body: { title: draft.title, lyrics: draft.lyrics, style: draft.style } });
+      view = await call("/api/orders/" + ref.id + "/retake", { method: "POST", body: { title: draft.title, lyrics: draft.lyrics, style: draft.style, arrangement: draft.arrangement } });
     }
     go(4); renderListen(); poll();
   } catch (e) { err.textContent = e.message; }
@@ -458,8 +458,10 @@ function renderListen(){
   });
   const src = "/api/orders/" + view.id + "/preview/" + view.chosen;
   if (src !== previewSrc){ if (previewAudio) previewAudio.pause(); previewSrc = src; previewAudio = mountAudio($("#preview-player"), src, "Play the preview", rec, () => track("preview")); }
-  draft.title = view.title; draft.lyrics = view.lyrics; draft.style = view.style || draft.style; saveDraft();
-  $$('[data-bind="title"],[data-bind="lyrics"],[data-bind="style"]').forEach(e => { e.value = draft[e.dataset.bind]; });
+  draft.title = view.title; draft.lyrics = view.lyrics; draft.style = view.style || draft.style;
+  if (typeof view.arrangement === "string") draft.arrangement = view.arrangement;
+  saveDraft();
+  $$('[data-bind="title"],[data-bind="lyrics"],[data-bind="style"],[data-bind="arrangement"]').forEach(e => { e.value = draft[e.dataset.bind]; });
   const left = view.takesLeft;
   $("#retake-btn").hidden = left <= 0; $("#edit-lyrics-btn").hidden = left <= 0;
   $("#take-note").textContent = view.error ? view.error : left <= 0 ? "You've used all your takes for this song." : "";

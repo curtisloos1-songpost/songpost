@@ -8,7 +8,7 @@ const db = require('./src/db');
 const limits = require('./src/limits');
 const notify = require('./src/notify');
 const { PublicError } = require('./src/errors');
-const { writeLyrics, reviewContent, suggestSound, checkSpelling, listNames, THEME } = require('./src/lyrics');
+const { writeLyrics, reviewContent, suggestSound, checkSpelling, tidyArrangement, listNames, THEME } = require('./src/lyrics');
 const { startGeneration, recoverInterrupted } = require('./src/jobs');
 const { getEngine } = require('./src/engines');
 const LEGAL = require('./src/legal.json');
@@ -55,6 +55,12 @@ function shown(o) {
   return { title: (t && t.title) || o.title, lyrics: (t && t.lyrics) || o.lyrics };
 }
 
+// The sound a take was recorded from, to put back on the song when that take is chosen or recorded again.
+// A take from before these were kept has none, and leaves the song's as they are.
+function soundOf(t) {
+  return t && typeof t.style === 'string' && t.style ? { style: t.style, arrangement: typeof t.arrangement === 'string' ? t.arrangement : '' } : {};
+}
+
 // Platinum comes with two takes. If the customer only recorded one before paying, record the other now.
 function startSecondTake(id) {
   const o = db.getOrder(id);
@@ -62,7 +68,8 @@ function startSecondTake(id) {
   try { getEngine(); } catch (e) { return false; }
   const t = o.takes[0];
   db.updateOrder(id, { status: 'generating', error: null, gen_started_at: Date.now(), gen_kind: 'second', gen_event_id: null,
-    title: t.title || o.title, lyrics: t.lyrics || o.lyrics, style: t.style || o.style }); // the same words, performed again
+    title: t.title || o.title, lyrics: t.lyrics || o.lyrics, style: t.style || o.style,
+    arrangement: typeof t.arrangement === 'string' ? t.arrangement : '' }); // the same words and the same notes, performed again
   startGeneration(id);
   return true;
 }
@@ -183,6 +190,7 @@ function senderView(o) {
   return {
     id: o.id, status: o.status, error: o.error || null, paid: o.paid, paidAt: o.paid_at || null, tier: o.tier || 'gold',
     recipient: o.recipient, sender: o.sender, occasion: o.occasion, genre: o.genre, tone: o.tone, title: o.title, lyrics: o.lyrics, style: o.style || '',
+    arrangement: o.arrangement || '',
     note: o.note || '', sayName: o.say_name || '', contactKind: contactKind(o.contact),
     takes: o.takes.map((t, i) => ({ n: i, title: t.title, duration: t.duration, previewSection: t.previewSection || null })), chosen: o.chosen,
     takesLeft: Math.max(0, cfg.takesPerOrder - o.attempts), previewSeconds: cfg.previewSeconds,
@@ -392,12 +400,14 @@ app.post('/api/orders', wrap(async (req, res) => {
   if (lyrics.length < 40) throw new PublicError('The song needs lyrics before it can be recorded.');
   const title = clip(req.body.title, 80) || `A Song for ${brief.recipient}`;
   // How it should sound: written by Claude from the customer's choices, and the customer may have changed it.
-  const style = quotable(label(req.body.style, 400), 400) || `${brief.genre}, warm, clear lead vocal`;
+  const style = quotable(label(req.body.style, 600), 600) || `${brief.genre}, warm, clear lead vocal`;
+  // The producer's notes: what changes from part to part, and what to avoid. Written by Claude; the customer may have changed them too.
+  const arrangement = quotable(tidyArrangement(req.body.arrangement), 2000);
   getEngine(); // fail early if the engine name is wrong
   limits.peekSong(req.ip); // refuse before doing any work if today's free previews are used up
   // The customer may have rewritten the lyrics, so they are checked against the content rules before recording.
   // So are the names and occasion the gift page shows, and the sounds-like spelling the singer is given for the name.
-  await reviewContent({ title, lyrics, style,
+  await reviewContent({ title, lyrics, style: arrangement ? style + '\n' + arrangement : style,
     shown: `For ${brief.recipient}, from ${brief.fromAll || brief.sender}${brief.relationship ? ` (the sender's ${brief.relationship})` : ''}. Occasion: ${brief.occasion}.`,
     sungName: brief.sayName ? `Name: ${brief.recipient}. Sung as: ${brief.sayName}` : '' });
   const id = newId(9);
@@ -411,7 +421,7 @@ app.post('/api/orders', wrap(async (req, res) => {
     tone: brief.tone, genre: brief.genre, voice: brief.voice,
     details: brief.answers.map(p => `${p.q} ${p.a}`).concat(people.flatMap(p => p.answers.map(a => `${p.name}: ${a.q} ${a.a}`))).join('\n'),
     title, lyrics,
-    style,
+    style, arrangement,
     note: '', attempts: 1, ip: req.ip, language: brief.language, say_name: brief.sayName, contact: brief.contact, gen_started_at: Date.now(),
   }, src);
   db.createOrder(order);
@@ -443,14 +453,18 @@ app.post('/api/orders/:id/retake', wrap(async (req, res) => {
   getEngine();
   limits.peekSong(req.ip);
   const patch = { status: 'generating', error: null, gen_started_at: Date.now(), gen_kind: 'take' };
-  const lyrics = clip(req.body.lyrics, 4500), title = clip(req.body.title, 80), style = quotable(label(req.body.style, 400), 400);
+  const lyrics = clip(req.body.lyrics, 4500), title = clip(req.body.title, 80), style = quotable(label(req.body.style, 600), 600);
   if (lyrics.length >= 40) patch.lyrics = lyrics;
   if (title) patch.title = title;
   if (style) patch.style = style;
+  // An emptied box means no notes; a page that doesn't send the field at all leaves them as they were.
+  if (typeof req.body.arrangement === 'string') patch.arrangement = quotable(tidyArrangement(req.body.arrangement), 2000);
   let now = o;
-  const newSound = patch.style && patch.style !== o.style;
+  const sound = x => (x.arrangement ? (x.style || '') + '\n' + x.arrangement : x.style || '');
+  const next = Object.assign({ style: o.style, arrangement: o.arrangement || '' }, patch.style ? { style: patch.style } : null, 'arrangement' in patch ? { arrangement: patch.arrangement } : null);
+  const newSound = sound(next) !== sound({ style: o.style, arrangement: o.arrangement || '' });
   if ((patch.lyrics && patch.lyrics !== o.lyrics) || (patch.title && patch.title !== o.title) || newSound) {
-    await reviewContent({ title: patch.title || o.title, lyrics: patch.lyrics || o.lyrics, style: newSound ? patch.style : '' });
+    await reviewContent({ title: patch.title || o.title, lyrics: patch.lyrics || o.lyrics, style: newSound ? sound(next) : '' });
     now = db.getOrder(o.id); // the check takes a moment; make sure nothing else started meanwhile
     if (!now || now.paid || now.status === 'generating' || now.attempts >= cfg.takesPerOrder) throw new PublicError('A recording is already under way.');
   }
@@ -480,8 +494,8 @@ app.post('/api/orders/:id/redo', wrap(async (req, res) => {
     await reviewContent(next);
     check(db.getOrder(o.id));
   }
-  db.updateOrder(o.id, { status: 'generating', error: null, gen_started_at: Date.now(), gen_kind: 'redo', gen_event_id: null,
-    redo_at: Date.now(), title: next.title, lyrics: next.lyrics });
+  db.updateOrder(o.id, Object.assign({ status: 'generating', error: null, gen_started_at: Date.now(), gen_kind: 'redo', gen_event_id: null,
+    redo_at: Date.now(), title: next.title, lyrics: next.lyrics }, soundOf(o.takes[o.chosen])));
   startGeneration(o.id);
   res.json(senderView(db.getOrder(o.id)));
 }));
@@ -499,7 +513,8 @@ app.post('/api/orders/:id/choose', wrap(async (req, res) => {
   const o = ownedOrder(req);
   const n = parseInt(req.body.take, 10);
   if (o.paid || !o.takes[n]) throw new PublicError('That take is not available.');
-  db.updateOrder(o.id, { chosen: n, title: o.takes[n].title, lyrics: o.takes[n].lyrics });
+  // The sound goes with the words: each take keeps the description and the producer's notes it was recorded from.
+  db.updateOrder(o.id, Object.assign({ chosen: n, title: o.takes[n].title, lyrics: o.takes[n].lyrics }, soundOf(o.takes[n])));
   res.json(senderView(db.getOrder(o.id)));
 }));
 
@@ -1052,7 +1067,7 @@ app.get('/admin', (req, res) => {
   const funnel = steps.map(([k, label]) => `<tr><td>${label}</td><td>${f[k] || 0}</td></tr>`).join('');
   const cameBy = o => [o.group_id ? 'made together' : '', o.via === 'gift' ? 'from a gift page' : o.via === 'join' ? 'from a group song' : '', o.ref_code ? 'partner: ' + o.ref_code : ''].filter(Boolean).join(', ');
   const rows = orders.map(o => `<tr><td>${when(o.created_at)}</td><td>${esc(o.recipient)}</td><td>${esc(o.group_names || o.sender)}${cameBy(o) ? `<br><span class="t-note">${esc(cameBy(o))}</span>` : ''}</td><td>${esc(o.contact || '')}</td>
-    <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? ' REMOVED' : ''}</td><td>${o.takes.length}</td>
+    <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? ' REMOVED' : ''}</td><td>${o.takes.length}${o.takes.some(t => t.plain) ? '<br><span class="t-note">The studio turned down the fuller notes, so the plain ones were used.</span>' : ''}</td>
     <td>${o.paid ? esc(tierName(o.tier)) + ' $' + (o.price_cents / 100).toFixed(2) : ''}</td>
     <td>${o.schedule_date ? esc(o.schedule_date) + (o.schedule_sent_at ? ' sent' : o.schedule_failed_at ? ' could not be delivered' : o.schedule_queued_at ? ' sending' : ' waiting') : ''}${o.redo_at ? '<br>redo used' : ''}</td>
     <td>${o.paid ? `<a href="/g/${esc(o.id)}">page</a>` : ''}</td>
