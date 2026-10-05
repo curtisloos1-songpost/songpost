@@ -2,35 +2,60 @@
 "use strict";
 const root = document.getElementById("gift");
 const id = location.pathname.split("/").filter(Boolean).pop();
+const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // The sender looking at their own gift page must not be taken for the person the song is for.
 // They arrive with ?sender=1 from the "See their page" button, or on the device the song was made on.
 let fromSender = new URLSearchParams(location.search).has("sender");
 try { if ((JSON.parse(localStorage.getItem("songpost-mine-v1") || "[]") || []).indexOf(id) >= 0) fromSender = true; } catch (e) {}
 
+const HEART = '<svg viewBox="-110 -80 220 200" aria-hidden="true" focusable="false"><path d="M0,-30C-25,-75 -100,-55 -100,-5C-100,45 -40,75 0,110C40,75 100,45 100,-5C100,-55 25,-75 0,-30Z"/></svg>';
+
 api("/api/gift/" + encodeURIComponent(id)).then(g => {
   root.textContent = "";
   const metal = g.tier === "platinum" ? "platinum" : "gold";
-  root.append(el("p", "for", "For " + g.recipient));
-  root.append(el("h1", null, g.sender + " made you a song."));
-  if (g.fromAll) root.append(el("p", "from-all", "From " + g.fromAll)); // a song made together: everyone it is from
   // Someone who goes on to make a song from here is counted as coming from this gift. The sender's own visit is not.
   const makeHref = fromSender ? "/" : "/?from=" + encodeURIComponent(id);
 
+  /* ---------- how it arrives: an envelope with their name on it, closed with a seal ---------- */
+  const arrive = el("div", "arrive");
+  arrive.append(el("p", "for", "Commissioned for you by " + g.sender));
+  const env = el("div", "env"); env.dataset.metal = metal;
+  const front = el("div", "env-front");
+  const nm = el("span", "env-name", g.recipient); nm.dir = "auto";
+  nm.style.fontSize = Math.max(1.05, Math.min(2.3, 15 / Math.max(g.recipient.length, 5))).toFixed(2) + "rem"; // a long name is written smaller
+  front.append(el("span", "env-for", "for"), nm);
+  const flap = el("div", "env-flap"); flap.append(el("i"));
+  const seal = el("button", "seal"); seal.type = "button"; seal.setAttribute("aria-label", "Break the seal to open your song");
+  seal.innerHTML = '<i class="seal-l"></i><i class="seal-r"></i><i class="seal-c"></i>' + HEART;
+  env.append(el("div", "env-back"), front, flap, seal);
+  const hint = el("p", "env-hint", "Break the seal to open it. Your song starts playing.");
+  arrive.append(env, hint);
+  if (fromSender) arrive.append(el("p", "status-line preview-note", "You're looking at " + g.recipient + "'s page as the sender. Opening it here isn't counted as their first listen."));
+  root.append(arrive);
+
+  /* ---------- what is inside ---------- */
+  const inside = el("div", "inside"); inside.hidden = true; root.append(inside);
+  inside.append(el("p", "for", "A song commissioned for"));
+  const h1 = el("h1", null, g.recipient); h1.dir = "auto"; inside.append(h1);
+  inside.append(el("p", "by", "by " + g.sender));
+  if (g.fromAll) inside.append(el("p", "from-all", "From " + g.fromAll)); // a song made together: everyone it is from
+
   const rec = el("div", "record"); rec.dataset.metal = metal; setRecord(rec, g);
   const shape = shapeFor(g.tone);
-  const stage = el("div", "rec-stage sealed shape-" + shape); stage.innerHTML = shapeSVG(shape); stage.append(rec); root.append(stage);
-  fitLabel(rec); // now it is on the page, the writing can be measured
-  const openRow = el("div", "open-row");
-  const openBtn = el("button", "btn light big", "Play your song"); openBtn.type = "button";
-  openRow.append(openBtn); root.append(openRow);
-  if (fromSender) root.append(el("p", "status-line preview-note", "You're looking at " + g.recipient + "'s page as the sender. Playing it here isn't counted as their first listen."));
+  const stage = el("div", "rec-stage sealed shape-" + shape); stage.innerHTML = shapeSVG(shape); stage.append(rec); inside.append(stage);
 
-  const plate = el("div", "plate"); plate.dataset.metal = metal; plate.hidden = true;
+  const plate = el("div", "plate"); plate.dataset.metal = metal;
   plate.append(el("span", "p1", "Presented to " + g.recipient), el("span", "p2", longDate(g.paidAt)));
-  root.append(plate);
+  inside.append(plate);
 
-  const sheet = el("div", "sheet"); sheet.hidden = true; root.append(sheet);
+  const sheet = el("div", "sheet"); inside.append(sheet);
+  // Platinum: the photo the sender chose, above the title.
+  if (g.photoUrl){
+    const fig = el("div", "g-photo"), im = el("img"); im.src = g.photoUrl; im.alt = "A photo from " + g.sender;
+    im.addEventListener("error", () => fig.remove());
+    fig.append(im); sheet.append(fig);
+  }
   const titleLine = el("p", "g-title", g.title || ""); titleLine.hidden = !g.title; sheet.append(titleLine);
   const ly = el("div", "g-lyrics");
 
@@ -42,11 +67,19 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
     heard = true; api("/api/gift/" + encodeURIComponent(id) + "/played", { method: "POST" }).catch(() => {});
   };
   const saveLink = el("a", "btn small", "Save the song"); saveLink.setAttribute("download", "");
+  // Platinum: the lyric sheet, made to print and frame. It follows the take being played.
+  const sheetLink = el("a", "btn small", "Lyric sheet to print and frame"); sheetLink.target = "_blank"; sheetLink.rel = "noopener";
+  // The sender's own voice, heard once before the song. It can be heard again from a small button under the player.
+  const again = el("button", "btn quiet small voice-again", "Hear " + g.sender + "'s message again"); again.type = "button"; again.hidden = true;
+  again.addEventListener("click", () => { if (audio && audio.playIntro) audio.playIntro(); });
+  let voiceOk = !!g.voiceUrl; // false once the recording turns out not to play
   // Each take carries its own words, which differ when the lyrics were changed between takes.
-  function useTake(url, title, lyrics){
+  function useTake(url, title, lyrics, n, first){
     if (audio) audio.pause();
-    audio = mountAudio(box, url, "Play the song", rec, played);
+    const intro = voiceOk ? { src: g.voiceUrl, label: "A message from " + g.sender, auto: !!first, onDone: () => { again.hidden = false; }, onBroken: () => { voiceOk = false; again.hidden = true; } } : null;
+    audio = mountAudio(box, url, "Play the song", rec, played, intro);
     saveLink.href = url + (url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
+    if (g.sheetUrl) sheetLink.href = g.sheetUrl + (n != null ? "?take=" + n : "");
     titleLine.textContent = title || ""; titleLine.hidden = !title;
     ly.textContent = ""; lyricsInto(ly, lyrics);
   }
@@ -57,27 +90,40 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
       b.setAttribute("aria-pressed", String(t.chosen));
       b.addEventListener("click", () => {
         Array.from(takes.children).forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-        useTake(t.url, t.title || g.title, t.lyrics || g.lyrics); audio.play().catch(() => {});
+        useTake(t.url, t.title || g.title, t.lyrics || g.lyrics, t.n); again.hidden = !voiceOk; audio.play().catch(() => {});
       });
       takes.append(b);
     });
     sheet.append(takes);
   }
   sheet.append(box);
-  useTake(g.audioUrl, g.title, g.lyrics);
+  if (g.voiceUrl) sheet.append(again);
+  useTake(g.audioUrl, g.title, g.lyrics, null, true);
 
   const keep = el("div", "keep");
   keep.append(saveLink);
-  if (metal === "platinum"){
-    const printBtn = el("button", "btn small", "Print the lyrics"); printBtn.type = "button";
-    printBtn.addEventListener("click", () => window.print());
-    keep.append(printBtn);
-  }
+  if (g.sheetUrl) keep.append(sheetLink);
   keep.append(el("p", "status-line", "Save the song if you want to keep it. This page may not stay online."));
   sheet.append(keep);
 
-  if (g.note){
-    const note = el("div", "g-note"); note.append(el("p", null, g.note), el("p", "sig", g.sender)); sheet.append(note);
+  // The note, signed: in the sender's own hand when they signed it, else with their name.
+  if (g.note || g.signature){
+    const note = el("div", "g-note");
+    if (g.note) note.append(el("p", null, g.note));
+    if (g.signature){ const s = el("div", "g-sig"); s.innerHTML = sigSVG(g.signature); note.append(s); }
+    else note.append(el("p", "sig", g.sender));
+    sheet.append(note);
+  }
+  // The sender's own words: one or two of the answers they gave, chosen by them.
+  if (g.words && g.words.length){
+    const card = el("div", "g-words");
+    card.append(el("h3", null, g.together ? "What we were told about you" : "What " + g.sender + " told us about you"));
+    g.words.forEach(w => {
+      const item = el("div", "gw");
+      const a = el("p", "gw-a", w.a); a.dir = "auto";
+      item.append(el("p", "gw-q", w.q), a); card.append(item);
+    });
+    sheet.append(card);
   }
   sheet.append(ly);
 
@@ -110,8 +156,8 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   reply.append(words, share, rrow, sent); sheet.append(reply);
 
   const pass = el("p", "pass"); pass.append(document.createTextNode("Kindness travels. "));
-  const again = el("a", "btn quiet", "Make a song for someone"); again.href = makeHref;
-  pass.append(again); sheet.append(pass);
+  const more = el("a", "btn quiet", "Make a song for someone"); more.href = makeHref;
+  pass.append(more); sheet.append(pass);
 
   // Anyone can flag a song for review.
   const rep = el("div", "report");
@@ -132,14 +178,26 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   });
   rep.append(repBtn); sheet.append(rep);
 
-  // The one big moment: the shape opens, the record turns, the song starts, the words appear.
-  openBtn.addEventListener("click", () => {
-    stage.classList.remove("sealed");
-    openRow.hidden = true;
-    plate.hidden = false; plate.classList.add("reveal");
-    sheet.hidden = false; sheet.classList.add("reveal");
-    audio.play().catch(() => {});
-  });
+  // The one big moment: the seal breaks, the envelope opens, the record turns, and the sender's voice or the song begins.
+  let opened = false;
+  function open(){
+    if (opened) return; opened = true;
+    audio.play().catch(() => {}); // straight away, while the tap still counts as the listener asking for sound
+    const show = () => {
+      arrive.remove(); inside.hidden = false;
+      fitLabel(rec); // now it is on the page, the writing can be measured
+      inside.classList.add("reveal"); plate.classList.add("reveal"); sheet.classList.add("reveal");
+      requestAnimationFrame(() => requestAnimationFrame(() => stage.classList.remove("sealed")));
+      window.scrollTo(0, 0);
+      h1.tabIndex = -1; try { h1.focus({ preventScroll: true }); } catch (e) {} // someone using a keyboard or a screen reader lands on what opened
+    };
+    if (calm){ show(); return; }
+    env.classList.add("open"); hint.classList.add("gone");
+    setTimeout(() => arrive.classList.add("away"), 900);
+    setTimeout(show, 1350);
+  }
+  seal.addEventListener("click", open);
+  env.addEventListener("click", open);
 }).catch(e => {
   root.textContent = "";
   root.append(el("h1", null, "This song isn't here."));

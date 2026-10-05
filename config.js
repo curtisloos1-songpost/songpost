@@ -36,6 +36,10 @@ const cfg = {
   murekaKey: str('MUREKA_API_KEY'),
   murekaModel: str('MUREKA_MODEL', 'mureka-9').toLowerCase(),
   murekaPollMs: int('MUREKA_POLL_MS', 5000),
+  // The Mureka model a Platinum record is recorded on after payment. "off" for none. Can be changed on the admin page.
+  premiumModel: str('PREMIUM_MODEL', 'mureka-9.5').toLowerCase(),
+  // A premium recording that could not be made is tried again by itself after each of these waits, in milliseconds.
+  premiumRetryMs: str('PREMIUM_RETRY_MS', '120000,600000').split(',').map(s => parseInt(s, 10)).filter(n => n > 0),
   // "off" for no backup engine; otherwise the other of ElevenLabs and Mureka is the backup when it has a key.
   musicBackup: str('MUSIC_BACKUP').toLowerCase(),
   sunoapiKey: str('SUNOAPI_KEY'),

@@ -26,7 +26,7 @@ const DRAFT_KEY = "songpost-draft-v5", ORDER_KEY = "songpost-order-v2", MINE_KEY
 let draft = blank();   // what the sender has typed
 let ref = null;        // { id, key } of the song being made, kept on this device
 let view = null;       // the server's view of that song
-let site = { priceGoldCents: 2499, pricePlatinumCents: 3999, previewSeconds: 30, takesPerOrder: 2, testCheckout: false, messaging: false, texting: false, scheduling: false, redoDays: 7, lyricsEstimateSeconds: 20, heardChoices: [] };
+let site = { priceGoldCents: 2499, pricePlatinumCents: 3999, previewSeconds: 30, takesPerOrder: 2, premium: false, testCheckout: false, messaging: false, texting: false, scheduling: false, redoDays: 7, lyricsEstimateSeconds: 20, heardChoices: [] };
 // A song made together. grp is { id, key } for the invitation started on this device; grpView is the server's
 // view of it: who has added their memories so far. shownFrom is who a finished song is signed from.
 let grp = null, grpView = null, groupTimer = null, shownFrom = "";
@@ -476,6 +476,9 @@ function paintTier(){
     b.setAttribute("aria-pressed", String(b.dataset.tier === tier));
     $(".t-top", b).lastElementChild.textContent = money(site[TIER[b.dataset.tier][2]]);
   });
+  // What Platinum adds. The recording on the premium model is only promised while there is one to give.
+  $("#plat-sub").textContent = "Everything in Gold, plus " + (site.premium ? "a second recording on our premium studio model, " : "")
+    + "your photo on their page, a lyric sheet designed to print and frame, and " + (site.premium ? "every take." : "both takes.");
   $("#pay-btn").textContent = "Unlock the " + TIER[tier][0] + " record for " + money(site[TIER[tier][2]]);
   $("#make-record").dataset.metal = TIER[tier][1]; // the record turns the metal they choose
 }
@@ -530,7 +533,7 @@ $$("#send-how .chip").forEach(b => b.addEventListener("click", () => setHow(b.da
 function showDone(info){
   clearInterval(pollTimer); if (previewAudio) previewAudio.pause();
   const name = info.recipient || "them", url = info.giftUrl;
-  const msg = (info.recipient ? info.recipient + ", " : "") + (info.together ? "we" : "I") + " made you a song. Press play: " + url;
+  const msg = (info.recipient ? info.recipient + ", " : "") + (info.together ? "we" : "I") + " had a song written for you. Open it here: " + url;
   // A song made together is signed from everyone; the organizer's own name stays theirs for the next song.
   shownFrom = info.together ? info.sender || "" : "";
   draft.recipient = info.recipient || draft.recipient; if (!info.together) draft.sender = info.sender || draft.sender; draft.title = info.title || draft.title;
@@ -539,11 +542,11 @@ function showDone(info){
   const plate = $("#done-plate"); plate.dataset.metal = info.tier === "platinum" ? "platinum" : "gold";
   $("#done-p1").textContent = "Presented to " + name;
   $("#done-p2").textContent = longDate(info.paidAt || Date.now());
-  $("#done-p").textContent = "Send " + name + " this link. It opens a page with the song, your note, and the lyrics.";
+  $("#done-p").textContent = "Send " + name + " this link. It opens an envelope with their name on it, and inside are the song, your note, and the lyrics.";
   $("#gift-link").value = url;
   $("#sms-link").href = "sms:?&body=" + encodeURIComponent(msg);
   $("#wa-link").href = "https://wa.me/?text=" + encodeURIComponent(msg); // opens WhatsApp with the message ready, to send to anyone
-  $("#mail-link").href = "mailto:?subject=" + encodeURIComponent((info.together ? "We" : "I") + " made you a song") + "&body=" + encodeURIComponent(msg);
+  $("#mail-link").href = "mailto:?subject=" + encodeURIComponent((info.together ? "We" : "I") + " had a song written for you") + "&body=" + encodeURIComponent(msg);
   const share = $("#share-btn"); share.hidden = !navigator.share;
   share.onclick = () => navigator.share({ text: msg }).catch(() => {});
   $("#copy-link").onclick = async e => {
@@ -731,16 +734,282 @@ function renderYours(){
   });
 }
 
-/* ---------- after paying: the Platinum second take, and the one free redo ---------- */
+/* ---------- after paying: what comes with a Platinum record ---------- */
+// The photo is made smaller here, in the browser, before it is sent: no more than 1600 pixels on its long side,
+// saved as a JPEG. Drawing it afresh also leaves behind what a phone writes into a picture, such as where it was taken.
+async function shrinkPhoto(file){
+  let src, w, h;
+  try { src = await createImageBitmap(file, { imageOrientation: "from-image" }); w = src.width; h = src.height; }
+  catch (e) {
+    const link = URL.createObjectURL(file);
+    try {
+      src = await new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => no(new Error("unreadable")); im.src = link; });
+      w = src.naturalWidth; h = src.naturalHeight;
+    } finally { setTimeout(() => URL.revokeObjectURL(link), 4000); }
+  }
+  if (!w || !h) throw new Error("unreadable");
+  const k = Math.min(1, 1600 / Math.max(w, h));
+  const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+  const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(src, 0, 0, c.width, c.height);
+  return new Promise((ok, no) => c.toBlob(b => (b ? ok(b) : no(new Error("unreadable"))), "image/jpeg", 0.86));
+}
+let photoBusy = false, touchFor = null;
+// A line of the "Make it yours" list: ticked once the touch has been added.
+function touchLine(box, sum, has, plain, done){ $(box).classList.toggle("has", !!has); $(sum).textContent = has ? done : plain; }
+// The sender's own touches, on either record: their voice, their signature, their own words, and (Platinum) a photo.
+function renderTouches(own, platinum){
+  const box = $("#touch-box"); box.hidden = !own;
+  if (!own) return;
+  if (touchFor !== view.id){ // a different song from the one last shown: nothing typed, drawn or said about that one carries over
+    touchFor = view.id; signDirty = false; signNow = null;
+    ["#voice-note", "#voice-err", "#sign-note", "#sign-err", "#words-note", "#words-err", "#photo-note", "#photo-err"].forEach(s => { $(s).textContent = ""; });
+    $$("details", box).forEach(d => { d.open = false; });
+  }
+  const name = view.recipient || "them";
+  $("#touch-lede").textContent = "Add any of these before you send the link. " + name + " finds them when the envelope is opened.";
+  // their voice
+  touchLine("#voice-box", "#voice-sum", view.voiceUrl, "Say a few words in your own voice", "Your voice is on it");
+  $("#voice-lede").textContent = "Up to " + VOICE_SECONDS + " seconds. " + name + " hears you just before the song starts.";
+  if (!voiceBusy){
+    const player = $("#voice-play");
+    player.hidden = !view.voiceUrl; if (view.voiceUrl && player.getAttribute("src") !== view.voiceUrl) player.src = view.voiceUrl;
+    $("#voice-rec").textContent = view.voiceUrl ? "Record it again" : "Record"; $("#voice-rec").hidden = false; $("#voice-stop").hidden = true;
+    $("#voice-remove").hidden = !view.voiceUrl; $("#voice-bar").hidden = true;
+  }
+  // their signature
+  touchLine("#sign-box", "#sign-sum", view.signature, "Sign it", "Signed");
+  $("#sign-remove").hidden = !view.signature;
+  if (!signDirty){ signStrokes = (view.signature || []).map(s => s.map(p => [p[0], p[1]])); drawSign(); }
+  // their own words
+  const answers = view.answers || [], shown = view.wordsShown || [], words = $("#words-box");
+  words.hidden = !answers.length;
+  if (answers.length){
+    touchLine("#words-box", "#words-sum", shown.length, "Show what you told us about " + name, "Your own words are on it");
+    $("#words-lede").textContent = view.together ? "Choose one or two of your answers. They appear on a card on " + name + "'s page." : "Choose one or two of your answers. They appear on a card that says “What " + (view.sender || "you") + " told us about you”.";
+    const list = $("#words-list"); list.textContent = "";
+    answers.forEach((a, i) => {
+      const lab = el("label", "check"), cb = el("input"); cb.type = "checkbox"; cb.checked = shown.indexOf(i) >= 0; cb.value = String(i);
+      const say = el("span"); say.append(el("small", null, a.q), document.createTextNode(a.a));
+      lab.append(cb, say); list.append(lab);
+      cb.addEventListener("change", async () => {
+        const picked = $$("input", list).filter(x => x.checked).map(x => Number(x.value));
+        const err = $("#words-err"), note = $("#words-note"); err.textContent = ""; note.textContent = "";
+        if (picked.length > 2){ cb.checked = false; err.textContent = "Choose one or two."; return; }
+        $$("input", list).forEach(x => { x.disabled = true; });
+        try { view = await call("/api/orders/" + ref.id + "/words", { method: "POST", body: { show: picked } }); note.textContent = picked.length ? "Saved. It's on " + name + "'s page." : "Saved. Nothing is shown."; renderTouches(true, platinum); $("#words-note").textContent = note.textContent; }
+        catch (x) { cb.checked = !cb.checked; err.textContent = x.message; $$("input", list).forEach(y => { y.disabled = false; }); }
+      });
+    });
+  }
+  // a photo (Platinum)
+  $("#photo-box").hidden = !platinum;
+  if (platinum){
+    const thumb = $("#photo-thumb");
+    touchLine("#photo-box", "#photo-sum", view.photoUrl, "Add a photo", "Your photo is on it");
+    thumb.hidden = !view.photoUrl; if (view.photoUrl && thumb.getAttribute("src") !== view.photoUrl) thumb.src = view.photoUrl;
+    thumb.alt = view.photoUrl ? "The photo on " + name + "'s page" : "";
+    $("#photo-lede").textContent = view.photoUrl ? "This photo is on " + name + "'s page and on the lyric sheet."
+      : "It appears with the song on " + name + "'s page, and on the lyric sheet.";
+    $("#photo-pick").textContent = view.photoUrl ? "Change the photo" : "Choose a photo";
+    $("#photo-remove").hidden = !view.photoUrl;
+  }
+}
+
+/* ---------- the sender's voice: a few words, recorded here and heard before the song ---------- */
+const VOICE_SECONDS = 10;
+let voiceBusy = false, voiceRec = null, voiceStream = null, voiceTimer = null, voiceParts = [];
+// Turns what the browser recorded into a small WAV file: one channel, 22,050 samples a second, at most ten seconds,
+// brought up to a steady loudness. Every phone and computer can play a WAV, whatever recorded it.
+async function toWav(blob){
+  const AC = window.AudioContext || window.webkitAudioContext, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!AC || !OAC) throw new Error("unsupported");
+  const bytes = await blob.arrayBuffer(), ctx = new AC();
+  let heard;
+  try { heard = await new Promise((ok, no) => { const p = ctx.decodeAudioData(bytes, ok, no); if (p && p.catch) p.catch(no); }); }
+  finally { if (ctx.close) ctx.close().catch(() => {}); }
+  const seconds = Math.min(VOICE_SECONDS, heard.duration);
+  const render = rate => new Promise((ok, no) => {
+    const off = new OAC(1, Math.max(1, Math.floor(seconds * rate)), rate), src = off.createBufferSource();
+    src.buffer = heard; src.connect(off.destination); src.start(0);
+    off.oncomplete = e => ok(e.renderedBuffer);
+    const p = off.startRendering(); if (p && p.catch) p.catch(no);
+  });
+  let rate = 22050, out;
+  try { out = await render(rate); } catch (e) { rate = 44100; out = await render(rate); } // older phones only work at the full rate
+  let data = out.getChannelData(0);
+  if (rate === 44100){ const half = new Float32Array(Math.floor(data.length / 2)); for (let i = 0; i < half.length; i++) half[i] = (data[2 * i] + data[2 * i + 1]) / 2; data = half; rate = 22050; }
+  let peak = 0; for (let i = 0; i < data.length; i++){ const a = Math.abs(data[i]); if (a > peak) peak = a; }
+  if (peak < 0.004) throw new Error("silent");
+  const gain = Math.min(0.92 / peak, 8);
+  const wav = new DataView(new ArrayBuffer(44 + data.length * 2)), put = (at, s) => { for (let i = 0; i < s.length; i++) wav.setUint8(at + i, s.charCodeAt(i)); };
+  put(0, "RIFF"); wav.setUint32(4, 36 + data.length * 2, true); put(8, "WAVE"); put(12, "fmt "); wav.setUint32(16, 16, true);
+  wav.setUint16(20, 1, true); wav.setUint16(22, 1, true); wav.setUint32(24, rate, true); wav.setUint32(28, rate * 2, true); wav.setUint16(32, 2, true); wav.setUint16(34, 16, true);
+  put(36, "data"); wav.setUint32(40, data.length * 2, true);
+  for (let i = 0; i < data.length; i++){ const v = Math.max(-1, Math.min(1, data[i] * gain)); wav.setInt16(44 + i * 2, v < 0 ? v * 32768 : v * 32767, true); }
+  return new Blob([wav.buffer], { type: "audio/wav" });
+}
+function voiceIdle(){
+  voiceBusy = false; clearInterval(voiceTimer);
+  if (voiceStream){ voiceStream.getTracks().forEach(t => t.stop()); voiceStream = null; }
+  if (ref && view) renderTouches(view.id === ref.id && view.paid, view.tier === "platinum");
+}
+$("#voice-rec").addEventListener("click", async () => {
+  if (voiceBusy || !ref) return;
+  const note = $("#voice-note"), err = $("#voice-err"); note.textContent = ""; err.textContent = "";
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder){ err.textContent = "This browser can't record sound. Try the browser on your phone."; return; }
+  voiceBusy = true;
+  try { voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { voiceIdle(); err.textContent = "We couldn't use the microphone. Allow it for this site, then try again."; return; }
+  try { voiceRec = new MediaRecorder(voiceStream); } catch (e) { voiceIdle(); err.textContent = "This browser can't record sound. Try the browser on your phone."; return; }
+  voiceParts = [];
+  voiceRec.ondataavailable = e => { if (e.data && e.data.size) voiceParts.push(e.data); };
+  voiceRec.onstop = async () => {
+    clearInterval(voiceTimer); if (voiceStream) voiceStream.getTracks().forEach(t => t.stop());
+    $("#voice-stop").hidden = true; $("#voice-bar").hidden = true; note.textContent = "Saving your message.";
+    try {
+      let wav;
+      try { wav = await toWav(new Blob(voiceParts, { type: voiceRec.mimeType || "audio/webm" })); }
+      catch (x) { throw new Error(x && x.message === "silent" ? "We couldn't hear anything. Check your microphone and try again." : "That recording couldn't be used. Try again."); }
+      let res;
+      try { res = await fetch("/api/orders/" + encodeURIComponent(ref.id) + "/voice", { method: "POST", headers: { "content-type": "audio/wav", "x-order-key": ref.key }, body: wav }); }
+      catch (x) { throw new Error("You seem to be offline. Check your connection and try again."); }
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Something went wrong. Try again.");
+      view = json; note.textContent = "Saved. Listen to it here, or record it again.";
+    } catch (x) { note.textContent = ""; err.textContent = x.message; }
+    voiceIdle();
+  };
+  $("#voice-rec").hidden = true; $("#voice-remove").hidden = true; $("#voice-play").hidden = true; $("#voice-stop").hidden = false;
+  const bar = $("#voice-bar"), fill = $("i", bar); bar.hidden = false; fill.style.width = "0";
+  const began = Date.now();
+  try { voiceRec.start(); } catch (e) { voiceIdle(); note.textContent = ""; err.textContent = "This browser can't record sound. Try the browser on your phone."; return; }
+  voiceTimer = setInterval(() => {
+    const gone = (Date.now() - began) / 1000, left = Math.max(0, Math.ceil(VOICE_SECONDS - gone));
+    fill.style.width = Math.min(100, gone / VOICE_SECONDS * 100) + "%";
+    note.textContent = "Recording. " + left + (left === 1 ? " second left." : " seconds left.");
+    if (gone >= VOICE_SECONDS && voiceRec.state !== "inactive") voiceRec.stop();
+  }, 100);
+});
+$("#voice-stop").addEventListener("click", () => { if (voiceRec && voiceRec.state !== "inactive") voiceRec.stop(); });
+$("#voice-remove").addEventListener("click", async () => {
+  if (voiceBusy || !ref) return; voiceBusy = true; $("#voice-err").textContent = "";
+  try { view = await call("/api/orders/" + ref.id + "/voice", { method: "DELETE" }); $("#voice-note").textContent = "Your message has been taken off."; }
+  catch (x) { $("#voice-err").textContent = x.message; }
+  voiceIdle();
+});
+
+/* ---------- the sender's signature: drawn with a finger or the mouse ---------- */
+// The pad is 600 wide and 200 high, whatever size it is shown at; the canvas has twice as many dots, so the ink is sharp.
+let signStrokes = [], signDirty = false, signNow = null, signPointer = null;
+const SIGN_STROKES = 110;
+const signCanvas = $("#sign-canvas");
+function drawSign(){
+  const g = signCanvas.getContext("2d"); g.setTransform(2, 0, 0, 2, 0, 0); g.clearRect(0, 0, 600, 200);
+  g.lineWidth = 3.4; g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = "#0E2A33";
+  signStrokes.forEach(s => {
+    g.beginPath(); g.moveTo(s[0][0], s[0][1]);
+    if (s.length === 1) g.lineTo(s[0][0] + 0.1, s[0][1]);
+    for (let i = 1; i < s.length - 1; i++) g.quadraticCurveTo(s[i][0], s[i][1], (s[i][0] + s[i + 1][0]) / 2, (s[i][1] + s[i + 1][1]) / 2);
+    if (s.length > 1) g.lineTo(s[s.length - 1][0], s[s.length - 1][1]);
+    g.stroke();
+  });
+}
+const signAt = e => { const r = signCanvas.getBoundingClientRect(); return [Math.round(Math.max(0, Math.min(600, (e.clientX - r.left) / r.width * 600))), Math.round(Math.max(0, Math.min(200, (e.clientY - r.top) / r.height * 200)))]; };
+signCanvas.addEventListener("pointerdown", e => {
+  if (e.button > 0 || signNow) return; e.preventDefault(); // a second finger, or the side of a hand, does not join in
+  $("#sign-note").textContent = ""; $("#sign-err").textContent = "";
+  if (signStrokes.length >= SIGN_STROKES){ $("#sign-err").textContent = "That is as much as the box can hold. Save it, or clear it and start again."; return; }
+  try { signCanvas.setPointerCapture(e.pointerId); } catch (x) {}
+  signPointer = e.pointerId; signNow = [signAt(e)]; signStrokes.push(signNow); signDirty = true; drawSign();
+});
+signCanvas.addEventListener("pointermove", e => {
+  if (!signNow || e.pointerId !== signPointer) return; e.preventDefault();
+  const p = signAt(e), last = signNow[signNow.length - 1];
+  if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) < 3) return; // near enough the same place
+  if (signStrokes.reduce((n, s) => n + s.length, 0) >= 5000) return;
+  signNow.push(p); drawSign();
+});
+["pointerup", "pointercancel", "pointerleave"].forEach(k => signCanvas.addEventListener(k, e => { if (e.pointerId === signPointer) signNow = null; }));
+$("#sign-clear").addEventListener("click", () => { signStrokes = []; signDirty = true; drawSign(); $("#sign-note").textContent = ""; $("#sign-err").textContent = ""; });
+$("#sign-save").addEventListener("click", async () => {
+  if (busy || !ref) return;
+  const err = $("#sign-err"), note = $("#sign-note"); err.textContent = ""; note.textContent = "";
+  if (!signStrokes.length){ err.textContent = "Sign in the box first."; return; }
+  busy = true;
+  try { view = await call("/api/orders/" + ref.id + "/signature", { method: "POST", body: { strokes: signStrokes } }); signDirty = false; renderExtras(); $("#sign-note").textContent = "Saved. It appears under your note."; }
+  catch (x) { err.textContent = x.message; }
+  busy = false;
+});
+$("#sign-remove").addEventListener("click", async () => {
+  if (busy || !ref) return; busy = true; $("#sign-err").textContent = "";
+  try { view = await call("/api/orders/" + ref.id + "/signature", { method: "DELETE" }); signDirty = false; renderExtras(); $("#sign-note").textContent = "Your signature has been taken off."; }
+  catch (x) { $("#sign-err").textContent = x.message; }
+  busy = false;
+});
+
+function renderPlat(){
+  const own = !!(ref && view && view.id === ref.id && view.paid), box = $("#plat-box");
+  renderTouches(own, own && view.tier === "platinum");
+  box.hidden = !(own && view.tier === "platinum");
+  if (box.hidden) return;
+  const name = view.recipient || "them";
+  $("#sheet-link").href = view.sheetUrl || "#"; $("#sheet-link").hidden = !view.sheetUrl; $("#sheet-lede").hidden = !view.sheetUrl;
+  // Every take is kept, and the sender chooses the one that plays first.
+  const lead = $("#lead-box"), chips = $("#lead-chips");
+  lead.hidden = !(view.takes.length > 1 && view.status !== "generating");
+  chips.textContent = ""; $("#lead-err").textContent = "";
+  if (lead.hidden) return;
+  $("#lead-lede").textContent = "Every take is on " + name + "'s page. Which one plays first?";
+  view.takes.forEach(t => {
+    const b = el("button", "chip", "Take " + (t.n + 1) + (t.premium ? " (premium)" : "")); b.type = "button";
+    b.setAttribute("aria-pressed", String(t.n === view.chosen));
+    b.addEventListener("click", async () => {
+      if (busy || t.n === view.chosen) return; busy = true;
+      try { view = await call("/api/orders/" + ref.id + "/choose", { method: "POST", body: { take: t.n } }); renderExtras(); }
+      catch (e) { $("#lead-err").textContent = e.message; }
+      busy = false;
+    });
+    chips.append(b);
+  });
+}
+$("#photo-pick").addEventListener("click", () => { if (!photoBusy) $("#photo-file").click(); });
+$("#photo-file").addEventListener("change", async e => {
+  const file = e.target.files && e.target.files[0]; e.target.value = "";
+  if (!file || photoBusy || !ref) return;
+  const note = $("#photo-note"), err = $("#photo-err"); err.textContent = ""; note.textContent = "Adding your photo.";
+  photoBusy = true; $("#photo-pick").disabled = true;
+  try {
+    let blob;
+    try { blob = await shrinkPhoto(file); } catch (x) { throw new Error("That picture couldn't be read. Try a JPEG or PNG."); }
+    let res;
+    try { res = await fetch("/api/orders/" + encodeURIComponent(ref.id) + "/photo", { method: "POST", headers: { "content-type": "image/jpeg", "x-order-key": ref.key }, body: blob }); }
+    catch (x) { throw new Error("You seem to be offline. Check your connection and try again."); }
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || "Something went wrong. Try again.");
+    view = json; renderPlat(); $("#photo-note").textContent = "Your photo is on their page.";
+  } catch (x) { note.textContent = ""; err.textContent = x.message; }
+  photoBusy = false; $("#photo-pick").disabled = false;
+});
+$("#photo-remove").addEventListener("click", async () => {
+  if (photoBusy || !ref) return; photoBusy = true;
+  $("#photo-err").textContent = "";
+  try { view = await call("/api/orders/" + ref.id + "/photo", { method: "DELETE" }); renderPlat(); $("#photo-note").textContent = "The photo has been taken off their page."; }
+  catch (x) { $("#photo-err").textContent = x.message; }
+  photoBusy = false;
+});
+
+/* ---------- after paying: the Platinum recording that is still to come, and the one free redo ---------- */
 function renderExtras(finished){
   const box = $("#extra-box"), note = $("#extra-note"), redo = $("#redo-box"), second = $("#second-btn");
   box.hidden = true; redo.hidden = true; second.hidden = true; note.textContent = ""; $("#redo-err").textContent = "";
+  renderPlat();
   if (!(ref && view && view.id === ref.id && view.paid)) return; // needs this device's key to the song
   const name = view.recipient || "them", platinum = view.tier === "platinum";
   if (view.status === "generating"){
     box.hidden = false;
     note.textContent = view.kind === "redo"
       ? "Recording your song again. The link stays the same, and the new recording takes the place of the old one when it's done."
+      : view.kind === "premium" ? "Recording your song on our premium studio model. It plays first on " + name + "'s page when it's done, and the takes you have stay there too."
       : "Recording the second take that comes with your Platinum record. It appears on " + name + "'s page when it's done.";
     startProgress(view.estimateSeconds, view.elapsedSeconds, $("#extra-progress"), "recording");
     $("#make-record").classList.add("spinning");
@@ -750,8 +1019,13 @@ function renderExtras(finished){
   const lines = [];
   if (finished && view.error) lines.push(view.error + (finished === "redo" ? " Your free redo has not been used." : ""));
   if (finished === "redo" && !view.error) lines.push("Your new recording is ready, on the same link.");
-  if (finished === "second" && !view.secondTakeMissing) lines.push("Both takes are now on " + name + "'s page.");
-  if (view.secondTakeMissing){ lines.push("Your Platinum record comes with a second take, and it hasn't been recorded yet."); second.hidden = false; }
+  if (finished === "second" && !view.owed) lines.push("Both takes are now on " + name + "'s page.");
+  if (finished === "premium" && !view.owed && !view.error) lines.push("Your premium recording is ready, and it now plays first on " + name + "'s page.");
+  if (view.owed){
+    lines.push(view.owed === "premium" ? "Your Platinum record comes with a recording on our premium studio model, and it hasn't been recorded yet."
+      : "Your Platinum record comes with a second take, and it hasn't been recorded yet.");
+    second.hidden = false;
+  }
   const used = view.redo && view.redo.used;
   if (used) lines.push("You've used the free redo for this song.");
   note.textContent = lines.join(" ");
@@ -761,7 +1035,7 @@ function renderExtras(finished){
     redo.hidden = false;
     $("#redo-lede").textContent = "Free until " + longDate(view.redo.until) + ". The new recording takes the place of the current one on the same link"
       + (platinum ? ", and your earlier takes stay on the page." : ".");
-    $("#redo-title").value = view.title || ""; $("#redo-lyrics").value = view.lyrics || "";
+    if (!$("#redo-box").open || !$("#redo-lyrics").value){ $("#redo-title").value = view.title || ""; $("#redo-lyrics").value = view.lyrics || ""; }
   }
   draft.title = view.title || draft.title; updateRecord();
 }

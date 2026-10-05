@@ -72,7 +72,7 @@ async function call(path, opts) {
 
 async function generate(song) {
   if (!cfg.murekaKey) throw new PublicError('Recording is not set up yet.', 503);
-  const body = { lyrics: String(song.lyrics || '').slice(0, 5000), model: model(), n: 1, prompt: promptFor(song) };
+  const body = { lyrics: String(song.lyrics || '').slice(0, 5000), model: MODELS.includes(song.model) ? song.model : model(), n: 1, prompt: promptFor(song) };
   if (!parseSections(body.lyrics).length) throw new PublicError('The song needs lyrics before it can be recorded.');
   if (song.voice === 'male' || song.voice === 'female') body.gender = song.voice;
   let task = await call('/v1/song/generate', { method: 'POST', body: JSON.stringify(body) });
@@ -103,11 +103,11 @@ async function generate(song) {
   if (audio.length < 1000) throw Object.assign(new PublicError('The recording did not finish. Try again.', 502), { detail: 'Mureka sent an empty file' });
   const wav = audio.toString('latin1', 0, 4) === 'RIFF';
   const used = String(task.model || body.model);
-  return { audio, mime: wav ? 'audio/wav' : 'audio/mpeg', ext: wav ? 'wav' : 'mp3',
+  return { audio, mime: wav ? 'audio/wav' : 'audio/mpeg', ext: wav ? 'wav' : 'mp3', model: used,
     durationSec: Number(choice.duration) > 0 ? Number(choice.duration) / 1000 : null,
     sectionStarts: startsFrom(body.lyrics, choice.lyrics_sections) || undefined,
     // Mureka charges by the song, not by the minute.
-    flatCost: cfg.costMurekaPerSong != null ? cfg.costMurekaPerSong : (PRICES[used] != null ? PRICES[used] : PRICES['mureka-9']) };
+    flatCost: cfg.costMurekaPerSong != null && !song.model ? cfg.costMurekaPerSong : (PRICES[used] != null ? PRICES[used] : PRICES[body.model] != null ? PRICES[body.model] : PRICES['mureka-9']) };
 }
 
 module.exports = { name: 'mureka', generate, promptFor, startsFrom, MODELS, model };

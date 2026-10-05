@@ -168,23 +168,64 @@ function lyricsInto(box, lyrics){
   });
 }
 
+// A signature: the strokes the sender drew, as a drawing that stays sharp at any size, cut close around the ink.
+// It takes the colour of the writing around it, so it reads on a light page and a dark one.
+function sigSVG(strokes){
+  if (!Array.isArray(strokes) || !strokes.length) return "";
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, d = "";
+  strokes.forEach(s => {
+    if (!Array.isArray(s) || !s.length) return;
+    s.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); });
+    if (s.length === 1){ d += "M" + s[0][0] + " " + s[0][1] + "l.1 0"; return; }
+    d += "M" + s[0][0] + " " + s[0][1];
+    for (let i = 1; i < s.length - 1; i++) d += "Q" + s[i][0] + " " + s[i][1] + " " + (s[i][0] + s[i + 1][0]) / 2 + " " + (s[i][1] + s[i + 1][1]) / 2;
+    d += "L" + s[s.length - 1][0] + " " + s[s.length - 1][1];
+  });
+  if (!d) return "";
+  const pad = 6;
+  return '<svg class="sig" viewBox="' + (x0 - pad) + " " + (y0 - pad) + " " + (x1 - x0 + 2 * pad) + " " + (y1 - y0 + 2 * pad) + '" role="img" aria-label="Signature">' +
+    '<path d="' + d + '" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
 // A play button with a progress line, driving a real audio file. rec is the record that turns while it plays.
+// intro, when given, is a short recording heard before the song: { src, label, auto, onDone }. With auto, the first
+// press of play starts with it. One player plays both, one after the other, because a phone only lets a page start
+// sound on the player the listener themselves pressed.
 const mmss = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
-function mountAudio(box, src, playLabel, rec, onFirstPlay){
+function mountAudio(box, src, playLabel, rec, onFirstPlay, intro){
   box.textContent = "";
-  const audio = new Audio(); audio.preload = "metadata"; audio.src = src;
+  const audio = new Audio(); audio.preload = "metadata";
+  let inIntro = !!(intro && intro.auto), then = "song", wanted = false, backTo = 0;
+  audio.src = inIntro ? intro.src : src;
+  // While the few words play, the song is fetched, so it starts without a gap.
+  if (inIntro){ const warm = new Audio(); warm.preload = "auto"; warm.src = src; }
   const btn = el("button", "btn small primary", playLabel); btn.type = "button";
   const bar = el("div", "pbar"), fill = el("i"); bar.append(fill);
   const time = el("span", "ptime", "0:00");
   const wrap = el("div", "player"); wrap.append(btn, bar, time); box.append(wrap);
   let played = false;
   const total = () => (isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0);
-  const paint = () => { const d = total(); fill.style.width = d ? (audio.currentTime / d * 100) + "%" : "0"; time.textContent = mmss(audio.currentTime) + (d ? " / " + mmss(d) : ""); };
+  const paint = () => { const d = total(); fill.style.width = d ? (audio.currentTime / d * 100) + "%" : "0";
+    time.textContent = inIntro ? intro.label : mmss(audio.currentTime) + (d ? " / " + mmss(d) : ""); };
   audio.addEventListener("loadedmetadata", paint); audio.addEventListener("timeupdate", paint);
-  audio.addEventListener("play", () => { btn.textContent = "Pause"; if (rec) rec.classList.add("spinning"); if (!played){ played = true; if (onFirstPlay) onFirstPlay(); } });
+  audio.addEventListener("play", () => { wanted = true; btn.textContent = "Pause"; if (rec) rec.classList.add("spinning"); if (!played){ played = true; if (onFirstPlay) onFirstPlay(); } });
   const stopped = () => { btn.textContent = playLabel; if (rec) rec.classList.remove("spinning"); };
-  audio.addEventListener("pause", stopped); audio.addEventListener("ended", stopped);
-  audio.addEventListener("error", () => { time.textContent = "The song couldn't load. Reload the page."; });
+  // The few words are over (or could not be played): on to the song, or back to it ready to play.
+  // heard: they played to the end. When they could not be played at all, nothing offers to play them again.
+  const toSong = (play, heard) => {
+    inIntro = false; audio.src = src;
+    if (backTo > 0){ const at = backTo; backTo = 0; audio.addEventListener("loadedmetadata", () => { try { audio.currentTime = at; } catch (e) {} }, { once: true }); }
+    stopped(); paint();
+    if (heard && intro.onDone) intro.onDone();
+    if (!heard) { audio.playIntro = null; if (intro.onBroken) intro.onBroken(); }
+    if (play) audio.play().catch(() => {});
+  };
+  audio.addEventListener("pause", () => { wanted = false; stopped(); });
+  audio.addEventListener("ended", () => { stopped(); if (inIntro) toSong(then === "song", true); });
+  audio.addEventListener("error", () => { if (inIntro) toSong(wanted && then === "song", false); else time.textContent = "The song couldn't load. Reload the page."; });
   btn.addEventListener("click", () => { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); });
+  // Hear the few words again, on their own.
+  // Hear the few words again, on their own. The song is left where it was.
+  if (intro) audio.playIntro = () => { if (inIntro) return; backTo = audio.currentTime || 0; audio.pause(); inIntro = true; then = "stop"; audio.src = intro.src; audio.play().catch(() => {}); };
   return audio;
 }

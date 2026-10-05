@@ -17,13 +17,26 @@ page after paying.
 6. **Preview.** The music engine records the song. The preview opens on the part where the name is sung, when the engine reports section timing.
 7. **Pay.** Gold or Platinum, through Stripe Checkout.
 8. **Send.** A link to copy, or buttons that open a text message, WhatsApp or an email with the link ready. Or "send it for me on a date", which only appears once a message provider is connected. The same page shows when the song was first played and anything the recipient wrote back, and the opening page lists "Your songs" on the device they were made on, so the sender can always get back to it.
-9. **The gift page.** The record, a shape that opens when the song starts (set by the tone), the note, the lyrics, a save button, a reply box, and a report link.
+9. **The gift page.** It arrives as an envelope with their name on it, closed with a seal in the record's metal. Breaking the seal opens it: "A song commissioned for Mom, by Sam", the record, a shape that opens when the song starts (set by the tone), the note, the lyrics, a save button, a reply box, and a report link. The sender can add their own touches first (see below).
 10. **The free redo.** For 7 days after paying, the sender's page has "Record it again": once, with the lyrics changed or not. The new recording replaces the old one at the same link. Nobody on your side is involved.
 
 ## Gold and Platinum
 
 - **Gold** (`PRICE_GOLD_CENTS`): the full song, the gift page, and a file to keep.
-- **Platinum** (`PRICE_PLATINUM_CENTS`): both takes on the gift page, and a lyric sheet that prints cleanly. If the customer recorded only one take before paying, the second is recorded automatically right after payment.
+- **Platinum** (`PRICE_PLATINUM_CENTS`): everything in Gold, plus
+  - **a recording on the premium model.** Right after payment the song is recorded once more on Mureka's premium model (`PREMIUM_MODEL`, or the choice on the admin page under Music engines). It plays first on the gift page; every earlier take is kept, and the sender can put one of them first instead. This is only offered while Mureka is the engine recording the songs and the premium model is a different one from the everyday model; otherwise the pay step does not mention it, and Platinum gets a second take as before. A premium recording is never passed to the backup engine: if Mureka cannot make it, the sender's page says it is still to come and has a "Record it now" button.
+  - **a photo on the gift page.** The sender's browser makes it smaller before sending it; the server takes out where and when it was taken, and Claude checks it against the content rules before it is shown.
+  - **a lyric sheet designed to print and frame** (`/g/<id>/sheet`): one page, US Letter or A4, sized by the page itself so any song fits, with the photo and the signature if there are any.
+
+**On either record, the sender can add** (on the page they see after paying, under "Make it yours"):
+
+- **a few words in their own voice**, up to 10 seconds, heard just before the song. Recorded in the browser and sent as a small WAV file, which every phone can play.
+- **a signature**, signed or written with a finger. It appears under the note, and on a Platinum lyric sheet.
+- **"What Sam told us about you"**: one or two of their own answers, shown on a card. They get the same content check as the note.
+
+Spoken messages and signatures are not checked automatically (there is nothing that can listen to or read them cheaply); the report link on every gift page covers them, and the content rules say so.
+
+**The link preview.** When the link is sent in a text or a chat, the message shows a picture of the record, in its metal, with their name on the label (`/g/<id>/card.png`), not a bare link. It is drawn by `src/card.js` with two npm packages (`@resvg/resvg-js` and the site's serif as a font file). If they cannot be loaded the site runs as before, without the picture.
 
 Only describe what exists. A lyric video is not built, so it is not offered.
 
@@ -238,6 +251,20 @@ checking by ear. Do the first live run with Stripe in test mode.
 - ElevenLabs' terms are confirmed to cover selling songs to consumers.
 - A message provider is connected and tested.
 - `DATA_DIR` is backed up.
+
+## What changed in 0.10.0
+
+Platinum is a real step up, and every gift page is more personal.
+
+- **Platinum now adds three things**: a recording on Mureka's premium model after payment, a photo on the gift page, and a lyric sheet designed to print and frame. See "Gold and Platinum" above. The admin page has a new choice under Music engines, "Platinum's premium recording", and the Songs list marks premium takes.
+- **On either record the sender can add** a few words in their own voice (heard before the song), a signature, and one or two of their own answers ("What Sam told us about you").
+- **The gift page arrives sealed**: an envelope with their name on it and a seal to break. The heading reads "A song commissioned for Mom, by Sam".
+- **The link shows a picture** in a text or chat: the record with their name on it.
+- The message the sender shares now reads "I had a song written for you. Open it here:".
+- New files: `src/photo.js`, `src/sheet.js`, `src/touches.js`, `src/card.js`. `arrange.js` knows where they go. `package.json` has two new packages, which Render installs by itself.
+- New settings: `PREMIUM_MODEL` (default `mureka-9.5`; `off` for none).
+- The policy drafts mention photos, recordings and signatures, and that Mureka may record the music. They are still drafts for your lawyer.
+- Not yet tried on real phones from here: recording a voice (it needs a microphone) and signing with a finger were tested in a desktop browser with stand-ins. Try both on an iPhone and an Android phone before relying on them.
 
 ## What changed in 0.9.0
 

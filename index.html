@@ -38,7 +38,7 @@
           <ol class="how">
             <li><span class="n">1</span><span class="t">Tell us about them</span><span class="d">A few short questions about your story together, or about the theme or feeling you want the song to carry.</span></li>
             <li><span class="n">2</span><span class="t">Hear your song</span><span class="d">We write and record it while you wait. Listen before you pay.</span></li>
-            <li><span class="n">3</span><span class="t">Send it</span><span class="d">They open a private page with their own gold record, your note, and the lyrics.</span></li>
+            <li><span class="n">3</span><span class="t">Send it</span><span class="d">They break the seal on an envelope with their name on it, and find their own gold record, your note, and the lyrics.</span></li>
           </ol>
           <p class="fine together-fine">Making it with sisters, brothers or friends? Start the song, then invite them to add their own memories. One song, from all of you.</p>
           <div class="yours" id="yours" hidden>
@@ -264,11 +264,11 @@
             <div class="tiers" role="group" aria-label="Which record to unlock">
               <button class="tier" type="button" data-tier="song" aria-pressed="true">
                 <span class="t-top"><span><i class="disc plate" data-metal="gold" aria-hidden="true"></i>Gold record</span><span>$24.99</span></span>
-                <span class="t-sub">The full song, a private page to send them, and a file to keep.</span>
+                <span class="t-sub">The full song on a private page that opens like a sealed letter, and a file to keep. Add your signature and a few words in your own voice.</span>
               </button>
               <button class="tier" type="button" data-tier="keepsake" aria-pressed="false">
                 <span class="t-top"><span><i class="disc plate" data-metal="platinum" aria-hidden="true"></i>Platinum record</span><span>$39.99</span></span>
-                <span class="t-sub">Everything in Gold, plus both takes and a lyric sheet to print and frame.</span>
+                <span class="t-sub" id="plat-sub">Everything in Gold, plus your photo on their page, a lyric sheet designed to print and frame, and both takes.</span>
               </button>
             </div>
             <div class="voices" id="voices" aria-label="What people have said" hidden></div>
@@ -296,6 +296,58 @@
         <div class="step" data-step="5" hidden>
           <h2 id="done-h">It's ready to send.</h2>
           <div class="center"><div class="plate" id="done-plate"><span class="p1" id="done-p1"></span><span class="p2" id="done-p2"></span></div></div>
+          <div class="touches" id="touch-box" hidden>
+            <p class="legend">Make it yours <span class="opt">optional</span></p>
+            <p class="status-line" id="touch-lede"></p>
+            <details class="promise touch" id="voice-box">
+              <summary><span id="voice-sum">Say a few words in your own voice</span></summary>
+              <p class="status-line" id="voice-lede"></p>
+              <div class="row">
+                <button class="btn small" type="button" id="voice-rec">Record</button>
+                <button class="btn small primary" type="button" id="voice-stop" hidden>Stop</button>
+                <button class="btn quiet small" type="button" id="voice-remove" hidden>Remove it</button>
+              </div>
+              <div class="rp-bar" id="voice-bar" aria-hidden="true" hidden><i></i></div>
+              <audio id="voice-play" controls preload="none" hidden></audio>
+              <p class="status-line" id="voice-note" role="status"></p>
+              <p class="err" role="alert" id="voice-err"></p>
+            </details>
+            <details class="promise touch" id="sign-box">
+              <summary><span id="sign-sum">Sign it</span></summary>
+              <p class="status-line">Sign your name, or write a few words, with your finger or the mouse. It appears under your note.</p>
+              <div class="sign-pad"><canvas id="sign-canvas" width="1200" height="400" role="img" aria-label="A box to sign in"></canvas></div>
+              <div class="row">
+                <button class="btn small" type="button" id="sign-save">Save it</button>
+                <button class="btn quiet small" type="button" id="sign-clear">Clear</button>
+                <button class="btn quiet small" type="button" id="sign-remove" hidden>Remove it</button>
+              </div>
+              <p class="status-line" id="sign-note" role="status"></p>
+              <p class="err" role="alert" id="sign-err"></p>
+            </details>
+            <details class="promise touch" id="words-box" hidden>
+              <summary><span id="words-sum">Show what you told us</span></summary>
+              <p class="status-line" id="words-lede"></p>
+              <div id="words-list"></div>
+              <p class="status-line" id="words-note" role="status"></p>
+              <p class="err" role="alert" id="words-err"></p>
+            </details>
+            <details class="promise touch" id="photo-box" hidden>
+              <summary><span id="photo-sum">Add a photo</span></summary>
+              <div class="plat-photo">
+                <img id="photo-thumb" alt="" hidden>
+                <div class="plat-photo-say">
+                  <p class="status-line" id="photo-lede"></p>
+                  <div class="row">
+                    <button class="btn small" type="button" id="photo-pick">Add a photo</button>
+                    <button class="btn quiet small" type="button" id="photo-remove" hidden>Remove it</button>
+                    <input id="photo-file" type="file" accept="image/*" hidden>
+                  </div>
+                  <p class="status-line" id="photo-note" role="status"></p>
+                  <p class="err" role="alert" id="photo-err"></p>
+                </div>
+              </div>
+            </details>
+          </div>
           <fieldset>
             <legend>How should it get to them?</legend>
             <div class="chips" id="send-how" role="group">
@@ -363,13 +415,23 @@
             <p class="status-line" id="rm-note" role="status"></p>
             <p class="err" role="alert" id="rm-err"></p>
           </details>
+          <div class="after-pay" id="plat-box" hidden>
+            <p class="legend">With your Platinum record</p>
+            <p class="status-line" id="sheet-lede">A lyric sheet, designed to print and frame.</p>
+            <div class="row"><a class="btn small" id="sheet-link" target="_blank" rel="noopener">Open the lyric sheet</a></div>
+            <div id="lead-box" hidden>
+              <p class="status-line" id="lead-lede"></p>
+              <div class="chips" id="lead-chips" role="group" aria-labelledby="lead-lede"></div>
+              <p class="err" role="alert" id="lead-err"></p>
+            </div>
+          </div>
           <div class="after-pay" id="extra-box" hidden>
             <p class="status-line" id="extra-note" role="status"></p>
             <div class="rec-progress" id="extra-progress" data-temp="1" hidden>
               <div class="rp-bar" aria-hidden="true"><i></i></div>
               <p class="rp-text"></p>
             </div>
-            <div class="row"><button class="btn small" type="button" id="second-btn" hidden>Record the second take</button></div>
+            <div class="row"><button class="btn small" type="button" id="second-btn" hidden>Record it now</button></div>
           </div>
           <details class="promise after-pay" id="redo-box" hidden>
             <summary>Not quite right? Record it again, free, once.</summary>

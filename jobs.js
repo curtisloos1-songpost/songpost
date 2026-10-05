@@ -4,7 +4,7 @@ const path = require('path');
 const cfg = require('./config');
 const db = require('./db');
 const notify = require('./notify');
-const { getEngine, getBackup } = require('./engines');
+const { getEngine, getBackup, premiumModel } = require('./engines');
 const { parseSections } = require('./sections');
 
 /*
@@ -16,6 +16,8 @@ const { parseSections } = require('./sections');
             A failure gives the redo back.
     second  the second take that comes with Platinum, when the customer only recorded one before paying.
             The recording they chose stays the main one.
+    premium the recording on the premium model that comes with Platinum, when there is a premium model.
+            It becomes the main one; the earlier takes stay, and the sender can put one of them back.
 */
 
 // The free preview: a stretch of the finished file, cut without re-encoding.
@@ -68,6 +70,53 @@ function sungLyrics(order) {
   return order.lyrics.replace(new RegExp('(^|[^\\p{L}])' + safe + '(?![\\p{L}])', 'giu'), (m, pre) => pre + say);
 }
 
+// What a Platinum record is still owed after payment, or null:
+//   premium  its recording on the premium model, when the song was sold with one and there still is one
+//   second   a second take, when there is no premium model and the customer only recorded one before paying
+function owedKind(o) {
+  if (!o || !o.paid || o.removed || o.tier !== 'platinum' || !o.takes.length) return null;
+  if (o.premium === 1 && premiumModel()) return 'premium';
+  return o.takes.length === 1 ? 'second' : null;
+}
+// Records what a Platinum record is owed. The same words and the same notes as the recording the customer chose, performed again.
+function startOwedTake(id) {
+  const o = db.getOrder(id), kind = owedKind(o);
+  if (!kind || o.status === 'generating') return false;
+  try { getEngine(); } catch (e) { return false; }
+  const t = o.takes[o.chosen] || o.takes[0];
+  db.updateOrder(id, { status: 'generating', error: null, gen_started_at: Date.now(), gen_kind: kind, gen_event_id: null,
+    title: t.title || o.title, lyrics: t.lyrics || o.lyrics, style: t.style || o.style,
+    arrangement: typeof t.arrangement === 'string' ? t.arrangement : '' });
+  startGeneration(id);
+  return true;
+}
+// A premium recording that could not be made is tried again by itself, after each wait in PREMIUM_RETRY_MS. The
+// customer has paid for it and may not come back to press "Record it now". After the last try it waits for them, or
+// for the next restart; the admin page shows it as still owed.
+const owedTries = new Map();
+function retryOwedLater(id) {
+  const n = owedTries.get(id) || 0, wait = cfg.premiumRetryMs[n];
+  if (!wait) return;
+  owedTries.set(id, n + 1);
+  const timer = setTimeout(() => { try { startOwedTake(id); } catch (e) { console.error('Could not start the owed recording for order', id, e); } }, wait);
+  if (timer.unref) timer.unref();
+}
+// Once another recording of a paid song is out of the way, whatever is still owed is started.
+function afterRecording(id, kind, failed) {
+  try {
+    if (kind === 'premium') { if (failed) retryOwedLater(id); else owedTries.delete(id); return; }
+    if (owedKind(db.getOrder(id))) startOwedTake(id);
+  } catch (e) { console.error('Could not look after what is owed for order', id, e); }
+}
+// At start-up: premium recordings that a restart cut short, or that never began.
+function resumeOwed() {
+  let n = 0;
+  for (const o of db.owedPremium()) {
+    const timer = setTimeout(() => { try { startOwedTake(o.id); } catch (e) { console.error('Could not start the owed recording for order', o.id, e); } }, 5000 + 20000 * n++);
+    if (timer.unref) timer.unref();
+  }
+}
+
 // A recording that didn't finish. Gives back whatever starting it used up.
 function fail(id, message) {
   const o = db.getOrder(id);
@@ -86,15 +135,20 @@ async function run(id) {
   const kind = order.gen_kind || 'take';
   try {
     let engine = getEngine(), out, stoodInFor = null;
+    // A Platinum record's recordings after payment are made on the premium model, when there is one.
+    const premium = order.paid && order.tier === 'platinum' && order.premium && (kind === 'premium' || kind === 'redo') ? premiumModel() : null;
+    if (kind === 'premium' && !premium) throw Object.assign(new Error('There is no premium model to record on'), { noted: true });
     const voice = /duet/i.test(order.voice) ? 'duet' : /woman/i.test(order.voice) ? 'female' : /man/i.test(order.voice) ? 'male' : 'any';
     const song = { title: order.title, style: order.style, lyrics: sungLyrics(order), voice, genre: order.genre, tone: order.tone, arrangement: order.arrangement || '' };
+    if (premium) song.model = premium;
     const why = e => (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed';
     try {
       out = await engine.generate(song);
     } catch (e) {
       // The first engine could not record. If there is a backup, the song is recorded there and the customer notices nothing.
       // Not when the song itself was turned down (422): that is the customer's to change, and no outage.
-      const backup = getBackup();
+      // Nor a premium recording: one made on the other engine would not be what the customer paid for.
+      const backup = premium ? null : getBackup();
       if (!backup || (e && e.status === 422)) throw e;
       console.error(`The ${engine.name} engine could not record order ${id}; recording it on ${backup.name} instead.`, e);
       db.noteErr('music:' + engine.name, why(e));
@@ -118,11 +172,14 @@ async function run(id) {
       previewSection: at != null ? { name: target.name, lines: target.lines, hasName: target.hasName } : null,
       title: order.title, lyrics: order.lyrics, style: order.style, arrangement: order.arrangement || '',
       plain: out.plan === 'plain' || undefined, // plain: the studio turned down the full plan, and the plain one was used
-      stoodInFor: stoodInFor || undefined });   // stoodInFor: the engine that could not record this take, when the backup did
+      stoodInFor: stoodInFor || undefined,      // stoodInFor: the engine that could not record this take, when the backup did
+      model: out.model || undefined, premium: premium ? true : undefined }); // premium: recorded on the premium model
     const patch = { status: 'ready', error: null, takes, engine: engine.name, gen_kind: null, gen_event_id: null };
+    if (premium) patch.premium = 2; // the premium recording itself, or a redo made on the premium model: either way they have it
     // A redo replaces the song on the gift page. A Platinum second take, or a preview that finishes after
     // the song was paid for, is added without changing the recording the customer chose.
-    if (kind === 'redo' || (kind === 'take' && !fresh.paid)) patch.chosen = takes.length - 1;
+    // The premium recording becomes the main one too: it is what a Platinum record is for.
+    if (kind === 'redo' || kind === 'premium' || (kind === 'take' && !fresh.paid)) patch.chosen = takes.length - 1;
     db.updateOrder(id, patch);
     // Count the music made, for the cost figures on the admin page.
     // An engine that charges by the song says what this one cost; the rest are costed by the minute.
@@ -131,11 +188,17 @@ async function run(id) {
       notify.send(id, fresh.contact, `Your new recording for ${fresh.recipient} is ready`,
         `We recorded your song for ${fresh.recipient} again. The new recording is on the same link:\n${cfg.baseUrl}/g/${id}`);
     }
+    afterRecording(id, kind, false);
+    if (kind === 'premium') {
+      notify.send(id, fresh.contact, `The premium recording for ${fresh.recipient} is ready`,
+        `Your Platinum record's premium recording is ready, and it now plays first on ${fresh.recipient}'s page. Your earlier takes are still there, and you can put one of them first instead:\n${cfg.baseUrl}/?order=${id}&key=${fresh.key}\n\nTheir page: ${cfg.baseUrl}/g/${id}`);
+    }
   } catch (e) {
     console.error('Recording failed for order', id, e);
     // A song the music service turned down for its words (422) is the customer's to fix, not an outage.
     if (!(e && (e.status === 422 || e.noted))) { let name = 'unknown'; try { name = getEngine().name; } catch (x) { /* a wrong engine name */ } db.noteErr('music:' + name, (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed'); }
     fail(id, e.publicMessage || 'The recording did not finish. Try again.');
+    afterRecording(id, kind, true);
   }
 }
 
@@ -149,4 +212,4 @@ function recoverInterrupted() {
   for (const o of db.generatingOrders()) fail(o.id, 'The recording was interrupted. Try again.');
 }
 
-module.exports = { startGeneration, recoverInterrupted, makePreview, previewTarget, sungLyrics };
+module.exports = { startGeneration, recoverInterrupted, owedKind, startOwedTake, resumeOwed, makePreview, previewTarget, sungLyrics };

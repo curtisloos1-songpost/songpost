@@ -8,10 +8,14 @@ const db = require('./src/db');
 const limits = require('./src/limits');
 const notify = require('./src/notify');
 const { PublicError } = require('./src/errors');
-const { writeLyrics, reviewContent, suggestSound, checkSpelling, tidyArrangement, listNames, THEME } = require('./src/lyrics');
-const { startGeneration, recoverInterrupted } = require('./src/jobs');
-const { getEngine, activeName, backupName, ready: engineReady, PAIR: ENGINE_PAIR, LABELS: ENGINE_LABELS } = require('./src/engines');
+const { writeLyrics, reviewContent, reviewPhoto, suggestSound, checkSpelling, tidyArrangement, listNames, THEME } = require('./src/lyrics');
+const { startGeneration, recoverInterrupted, owedKind, startOwedTake, resumeOwed } = require('./src/jobs');
+const { getEngine, activeName, backupName, premiumModel, ready: engineReady, PAIR: ENGINE_PAIR, LABELS: ENGINE_LABELS } = require('./src/engines');
 const mureka = require('./src/engines/mureka');
+const { cleanJpeg, sizeProblem } = require('./src/photo');
+const { sheetHtml } = require('./src/sheet');
+const { cleanStrokes, wavInfo } = require('./src/touches');
+const card = require('./src/card');
 const LEGAL = require('./src/legal.json');
 const OCCASIONS = require('./src/occasions.json');
 
@@ -62,26 +66,14 @@ function soundOf(t) {
   return t && typeof t.style === 'string' && t.style ? { style: t.style, arrangement: typeof t.arrangement === 'string' ? t.arrangement : '' } : {};
 }
 
-// Platinum comes with two takes. If the customer only recorded one before paying, record the other now.
-function startSecondTake(id) {
-  const o = db.getOrder(id);
-  if (!o || !o.paid || o.removed || o.tier !== 'platinum' || o.takes.length !== 1 || o.status === 'generating') return false;
-  try { getEngine(); } catch (e) { return false; }
-  const t = o.takes[0];
-  db.updateOrder(id, { status: 'generating', error: null, gen_started_at: Date.now(), gen_kind: 'second', gen_event_id: null,
-    title: t.title || o.title, lyrics: t.lyrics || o.lyrics, style: t.style || o.style,
-    arrangement: typeof t.arrangement === 'string' ? t.arrangement : '' }); // the same words and the same notes, performed again
-  startGeneration(id);
-  return true;
-}
-
 // tier and priceCents come from the checkout that was actually paid, not from whatever the order says now.
 function markPaid(id, sessionId, tier, priceCents) {
   const o = db.getOrder(id);
   if (!o || o.paid) return;
   const t = tier === 'platinum' || tier === 'gold' ? tier : (o.tier === 'platinum' ? 'platinum' : 'gold');
   const cents = parseInt(priceCents, 10);
-  db.updateOrder(id, { paid: true, paid_at: Date.now(), stripe_session: sessionId || null, tier: t, price_cents: Number.isFinite(cents) ? cents : PRICES[t]() });
+  db.updateOrder(id, { paid: true, paid_at: Date.now(), stripe_session: sessionId || null, tier: t, price_cents: Number.isFinite(cents) ? cents : PRICES[t](),
+    premium: t === 'platinum' && premiumModel() ? 1 : 0 }); // a Platinum record sold while there is a premium model is owed a recording on it
   db.removeOrderEvents(id, 'song'); // a song that was paid for no longer counts towards the free-preview limit
   db.bumpFunnel('paid');
   // A real sale, or a practice unlock from the test checkout that brought in no money.
@@ -101,7 +93,7 @@ function markPaid(id, sessionId, tier, priceCents) {
     notify.send(id, p.contact, `The song for ${o.recipient} is ready`,
       `${g.organizer} has finished the song you helped make for ${o.recipient}.\n\nListen to it here: ${giftUrl(id)}?sender=1\n\n${g.organizer} is the one giving it to ${o.recipient}, so please leave the sending to them. Afterwards, you can see what ${o.recipient} writes back on the page where you added your memories: ${cfg.baseUrl}/join/${g.id}`);
   }
-  if (t === 'platinum') startSecondTake(id);
+  if (t === 'platinum') startOwedTake(id);
 }
 
 /* ---------- Stripe webhook (needs the raw body, so it comes before express.json) ---------- */
@@ -187,25 +179,39 @@ function redoView(o) {
   const until = (o.paid_at || 0) + cfg.redoDays * DAY;
   return { used: !!o.redo_at, until, available: !o.removed && !o.redo_at && cfg.redoDays > 0 && Date.now() <= until };
 }
+// The picture on a Platinum gift page. Its address changes when the picture does, so a browser never shows an old one.
+const photoUrl = o => (o.photo ? `/photo/${o.id}?v=${encodeURIComponent(String(o.photo).replace(/^.*-p|\.jpg$/g, ''))}` : null);
+const sheetUrl = o => `/g/${o.id}/sheet`;
+// The sender's touches. Each is kept as text on the song and read back here; anything unreadable counts as not there.
+const listOf = v => { try { const x = JSON.parse(v || '[]'); return Array.isArray(x) ? x : []; } catch (e) { return []; } };
+const ownAnswers = o => listOf(o.answers_json).filter(p => p && typeof p.q === 'string' && typeof p.a === 'string' && p.a).slice(0, 6);
+const wordsShown = o => { const a = ownAnswers(o); return listOf(o.words).filter(i => Number.isInteger(i) && a[i]).slice(0, 2); };
+const signatureOf = o => { const s = listOf(o.signature); return s.length ? s : null; };
+const voiceUrl = o => (o.spoken ? `/voice/${o.id}?v=${encodeURIComponent(String(o.spoken).replace(/^.*-v|\.wav$/g, ''))}` : null);
 function senderView(o) {
   return {
     id: o.id, status: o.status, error: o.error || null, paid: o.paid, paidAt: o.paid_at || null, tier: o.tier || 'gold',
     recipient: o.recipient, sender: o.sender, occasion: o.occasion, genre: o.genre, tone: o.tone, title: o.title, lyrics: o.lyrics, style: o.style || '',
     arrangement: o.arrangement || '',
     note: o.note || '', sayName: o.say_name || '', contactKind: contactKind(o.contact),
-    takes: o.takes.map((t, i) => ({ n: i, title: t.title, duration: t.duration, previewSection: t.previewSection || null })), chosen: o.chosen,
+    takes: o.takes.map((t, i) => ({ n: i, title: t.title, duration: t.duration, previewSection: t.previewSection || null, premium: !!t.premium })), chosen: o.chosen,
     takesLeft: Math.max(0, cfg.takesPerOrder - o.attempts), previewSeconds: cfg.previewSeconds,
     estimateSeconds: estimateSeconds(),
     elapsedSeconds: o.status === 'generating' && o.gen_started_at ? Math.max(0, Math.round((Date.now() - o.gen_started_at) / 1000)) : 0,
     giftUrl: o.paid ? giftUrl(o.id) : null, schedule: scheduleView(o),
     // after payment: which recording is under way, the free redo, and a Platinum second take still owed
     kind: o.status === 'generating' ? (o.gen_kind || 'take') : null, redo: redoView(o),
-    secondTakeMissing: !!(o.paid && o.tier === 'platinum' && o.takes.length < 2 && o.status !== 'generating'),
+    // owed: what a Platinum record still has coming ("premium" or "second") and has not been recorded yet
+    owed: o.status !== 'generating' ? owedKind(o) : null, secondTakeMissing: o.status !== 'generating' && owedKind(o) === 'second',
     // what has happened on the gift page, so the sender can see it on their own page even with no message service
     firstPlayedAt: o.first_played_at || null, replies: o.paid ? db.repliesFor(o.id) : [],
     // a song made together: everyone it is from. passedOn: songs since started from this one's gift page or by its contributors.
     fromAll: o.group_names || '', together: !!o.group_id, passedOn: o.paid ? db.songsLedTo(o.id) : 0,
     heard: o.heard || '', reminder: o.paid ? reminderView(o) : null,
+    // what comes with a Platinum record: a picture on their page, and a lyric sheet to print and frame
+    photoUrl: o.paid ? photoUrl(o) : null, sheetUrl: o.paid && !o.removed && o.tier === 'platinum' ? sheetUrl(o) : null,
+    // the sender's own touches, on either record: what they told us (and which answers they show), their signature, their voice
+    answers: o.paid ? ownAnswers(o) : [], wordsShown: wordsShown(o), signature: signatureOf(o), voiceUrl: o.paid ? voiceUrl(o) : null,
   };
 }
 // How long lyric writing usually takes: the average of recent requests, or a starting guess.
@@ -241,6 +247,7 @@ const canReach = contact => contactKind(contact) !== 'phone' || !notify.live() |
 /* ---------- public API ---------- */
 app.get('/api/config', (req, res) => {
   res.json({ priceGoldCents: cfg.priceGoldCents, pricePlatinumCents: cfg.pricePlatinumCents, previewSeconds: cfg.previewSeconds,
+    premium: !!premiumModel(), // whether a Platinum record comes with a recording on the premium model
     takesPerOrder: cfg.takesPerOrder, testCheckout, messaging: notify.live(), scheduling: canSchedule(), redoDays: cfg.redoDays,
     lyricsEstimateSeconds: lyricsEstimateSeconds(), texting: notify.canText(), heardChoices: HEARD });
 });
@@ -423,6 +430,8 @@ app.post('/api/orders', wrap(async (req, res) => {
     details: brief.answers.map(p => `${p.q} ${p.a}`).concat(people.flatMap(p => p.answers.map(a => `${p.name}: ${a.q} ${a.a}`))).join('\n'),
     title, lyrics,
     style, arrangement,
+    // the sender's own answers, so they can choose one or two to show on the gift page. A theme song's are about the theme, not the person.
+    answers_json: JSON.stringify(brief.occasion === THEME ? [] : brief.answers),
     note: '', attempts: 1, ip: req.ip, language: brief.language, say_name: brief.sayName, contact: brief.contact, gen_started_at: Date.now(),
   }, src);
   db.createOrder(order);
@@ -501,21 +510,22 @@ app.post('/api/orders/:id/redo', wrap(async (req, res) => {
   res.json(senderView(db.getOrder(o.id)));
 }));
 
-// Platinum's second take is recorded automatically after payment. This is the retry if that recording failed.
+// Platinum's premium recording (or its second take) is recorded automatically after payment. This is the retry if that failed.
 app.post('/api/orders/:id/second-take', wrap(async (req, res) => {
   const o = ownedOrder(req);
   if (o.status === 'generating') throw new PublicError('A recording is already under way.');
-  if (!startSecondTake(o.id)) throw new PublicError('There is no second take to record for this song.');
+  if (!startOwedTake(o.id)) throw new PublicError('There is nothing more to record for this song.');
   res.json(senderView(db.getOrder(o.id)));
 }));
 
-// Pick which take to buy.
+// Pick which take to buy. After paying, a Platinum record keeps every take, and this picks the one that plays first.
 app.post('/api/orders/:id/choose', wrap(async (req, res) => {
   const o = ownedOrder(req);
   const n = parseInt(req.body.take, 10);
-  if (o.paid || !o.takes[n]) throw new PublicError('That take is not available.');
+  if (!o.takes[n] || (o.paid && (o.tier !== 'platinum' || o.removed))) throw new PublicError('That take is not available.');
+  if (o.paid && o.status === 'generating') throw new PublicError('A recording is under way. Choose once it is done.');
   // The sound goes with the words: each take keeps the description and the producer's notes it was recorded from.
-  db.updateOrder(o.id, Object.assign({ chosen: n, title: o.takes[n].title, lyrics: o.takes[n].lyrics }, soundOf(o.takes[n])));
+  db.updateOrder(o.id, Object.assign({ chosen: n, title: o.takes[n].title || o.title, lyrics: o.takes[n].lyrics || o.lyrics }, soundOf(o.takes[n])));
   res.json(senderView(db.getOrder(o.id)));
 }));
 
@@ -654,12 +664,15 @@ app.get('/api/gift/:id', wrap(async (req, res) => {
   const o = liveGift(req.params.id);
   const words = shown(o);
   const out = { recipient: o.recipient, sender: o.sender, occasion: o.occasion, genre: o.genre, tone: o.tone, tier: o.tier || 'gold',
-    title: words.title, lyrics: words.lyrics, note: o.note || '', paidAt: o.paid_at, audioUrl: `/media/${o.id}`,
+    title: words.title, lyrics: words.lyrics, note: o.note || '', paidAt: o.paid_at, audioUrl: `/media/${o.id}?take=${o.chosen}`,
     replyIsSent: notify.live() && !!contactKind(o.contact) && canReach(o.contact), // false: a reply waits on the sender's page instead of being messaged
     fromAll: o.group_names && o.group_names !== o.sender ? o.group_names : '', together: !!o.group_id };
+  if (out.tier === 'platinum') { out.photoUrl = photoUrl(o); out.sheetUrl = sheetUrl(o); }
+  const answers = ownAnswers(o);
+  out.words = wordsShown(o).map(i => answers[i]); out.signature = signatureOf(o); out.voiceUrl = voiceUrl(o);
   // Platinum keeps every recording, each with its own words.
   if (out.tier === 'platinum' && o.takes.length > 1) {
-    out.takes = o.takes.map((t, i) => ({ url: `/media/${o.id}?take=${i}`, chosen: i === o.chosen, title: t.title || words.title, lyrics: t.lyrics || words.lyrics }));
+    out.takes = o.takes.map((t, i) => ({ n: i, url: `/media/${o.id}?take=${i}`, chosen: i === o.chosen, title: t.title || words.title, lyrics: t.lyrics || words.lyrics }));
   }
   res.json(out);
 }));
@@ -694,11 +707,129 @@ app.get('/media/:id', (req, res) => {
   const o = db.getOrder(req.params.id);
   if (!o || !o.paid || o.removed) return res.status(404).end();
   let n = o.chosen;
+  // Platinum keeps every take, and ?take picks one. On a Gold record ?take only keeps the address fresh: the chosen take is the only one given out.
   if (req.query.take != null && (o.tier === 'platinum') && o.takes[parseInt(req.query.take, 10)]) n = parseInt(req.query.take, 10);
   const t = o.takes[n];
   if (!t) return res.status(404).end();
   if (req.query.download) res.attachment(`${(t.title || o.title || 'song').replace(/[^\w \-]+/g, '').trim() || 'song'}.${t.file.split('.').pop()}`);
   res.type(t.mime).set('Cache-Control', 'private, max-age=86400').sendFile(t.file, { root: db.mediaDir });
+});
+
+/* ---------- what comes with a Platinum record: a photo on their page, and a lyric sheet ---------- */
+// An upload is only read in for the sender of a song: the key is checked before the file, so nobody else can make the site hold one.
+const ownerFirst = (req, res, next) => { try { ownedOrder(req); next(); } catch (e) { next(e); } };
+// The sender's browser makes the picture smaller and sends it as a JPEG, as the whole body of the request.
+app.post('/api/orders/:id/photo', ownerFirst, express.raw({ type: 'image/jpeg', limit: '4mb' }), wrap(async (req, res) => {
+  const o = ownedOrder(req);
+  const check = x => {
+    if (!x || x.removed) throw new PublicError('This song has been removed.', 404);
+    if (!x.paid || x.tier !== 'platinum') throw new PublicError('A photo on their page comes with the Platinum record.');
+  };
+  check(o);
+  if (!limits.allow(req.ip, 'photo', 20)) throw new PublicError('That is a lot of pictures. Try again later.', 429);
+  const pic = cleanJpeg(req.body);
+  if (!pic) throw new PublicError("That picture couldn't be read. Try a different one.");
+  const problem = sizeProblem(pic);
+  if (problem) throw new PublicError(problem);
+  await reviewPhoto(pic.data);
+  const now = db.getOrder(o.id); check(now); // the check takes a moment
+  const file = `${o.id}-p${Date.now().toString(36)}${newId(2)}.jpg`;
+  fs.writeFileSync(path.join(db.mediaDir, file), pic.data);
+  db.updateOrder(o.id, { photo: file });
+  if (now.photo !== file) db.unlinkMedia(now.photo);
+  res.json(senderView(db.getOrder(o.id)));
+}));
+app.delete('/api/orders/:id/photo', wrap(async (req, res) => {
+  const o = ownedOrder(req);
+  if (o.photo) { db.updateOrder(o.id, { photo: null }); db.unlinkMedia(o.photo); }
+  res.json(senderView(db.getOrder(o.id)));
+}));
+/* ---------- the sender's own touches, on either record ---------- */
+// Only the sender, only once the song is unlocked, and never after it is removed.
+function touchable(req) {
+  const o = ownedOrder(req);
+  if (o.removed) throw new PublicError('This song has been removed.', 404);
+  if (!o.paid) throw new PublicError('Unlock the song first.');
+  return o;
+}
+// "What Sam told us about you": which one or two of their own answers the gift page shows.
+app.post('/api/orders/:id/words', wrap(async (req, res) => {
+  const o = touchable(req), answers = ownAnswers(o);
+  const show = [...new Set((Array.isArray(req.body.show) ? req.body.show : []).map(Number))].filter(i => Number.isInteger(i) && answers[i]).sort((a, b) => a - b);
+  if (show.length > 2) throw new PublicError('Choose one or two.');
+  // They are shown to the recipient, so they get the same check as the note.
+  const fresh = show.filter(i => !wordsShown(o).includes(i));
+  if (fresh.length) {
+    if (!limits.allow(req.ip, 'words', 40)) throw new PublicError('That is a lot of changes. Try again later.', 429);
+    await reviewContent({ note: fresh.map(i => `${answers[i].q} ${answers[i].a}`).join('\n') }); // the question is shown as well as the answer
+  }
+  db.updateOrder(o.id, { words: JSON.stringify(show) });
+  res.json(senderView(db.getOrder(o.id)));
+}));
+// A signature, or a few words, drawn with a finger. It appears under the note.
+app.post('/api/orders/:id/signature', wrap(async (req, res) => {
+  const o = touchable(req), strokes = cleanStrokes(req.body.strokes);
+  if (!strokes) throw new PublicError('Sign in the box first.');
+  db.updateOrder(o.id, { signature: JSON.stringify(strokes) });
+  res.json(senderView(db.getOrder(o.id)));
+}));
+app.delete('/api/orders/:id/signature', wrap(async (req, res) => {
+  const o = touchable(req);
+  db.updateOrder(o.id, { signature: null });
+  res.json(senderView(db.getOrder(o.id)));
+}));
+// A few words in the sender's own voice, heard just before the song. The browser sends a small WAV file.
+const VOICE_SECONDS = 10;
+app.post('/api/orders/:id/voice', ownerFirst, express.raw({ type: ['audio/wav', 'audio/x-wav', 'audio/wave'], limit: '1500kb' }), wrap(async (req, res) => {
+  const o = touchable(req);
+  if (!limits.allow(req.ip, 'voice', 30)) throw new PublicError('That is a lot of recordings. Try again later.', 429);
+  const info = wavInfo(req.body);
+  if (!info) throw new PublicError("That recording couldn't be read. Record it again.");
+  if (info.seconds < 0.5) throw new PublicError('That recording is too short. Record it again.');
+  if (info.seconds > VOICE_SECONDS + 0.6) throw new PublicError(`Keep it to ${VOICE_SECONDS} seconds.`);
+  const file = `${o.id}-v${Date.now().toString(36)}${newId(2)}.wav`;
+  fs.writeFileSync(path.join(db.mediaDir, file), req.body);
+  const now = db.getOrder(o.id);
+  db.updateOrder(o.id, { spoken: file });
+  if (now && now.spoken !== file) db.unlinkMedia(now.spoken);
+  res.json(senderView(db.getOrder(o.id)));
+}));
+app.delete('/api/orders/:id/voice', wrap(async (req, res) => {
+  const o = touchable(req);
+  if (o.spoken) { db.updateOrder(o.id, { spoken: null }); db.unlinkMedia(o.spoken); }
+  res.json(senderView(db.getOrder(o.id)));
+}));
+app.get('/voice/:id', (req, res) => {
+  const o = db.getOrder(req.params.id);
+  if (!o || !o.paid || o.removed || !o.spoken) return res.status(404).end();
+  res.type('audio/wav').set('Cache-Control', 'private, max-age=86400').sendFile(path.basename(o.spoken), { root: db.mediaDir });
+});
+// The picture a messaging app shows with the link: the record, in its metal, with their name on it.
+app.get('/g/:id/card.png', (req, res) => {
+  const o = db.getOrder(req.params.id);
+  if (!o || !o.paid || o.removed || !card.canDraw(o.recipient)) return res.status(404).end();
+  let png = null;
+  try { png = card.cardPng({ recipient: o.recipient, sender: o.sender, title: shown(o).title, metal: o.tier === 'platinum' ? 'platinum' : 'gold' }); }
+  catch (e) { console.error('The link-preview picture could not be drawn for', o.id, e); }
+  if (!png) return res.status(404).end();
+  res.type('image/png').set('Cache-Control', 'public, max-age=3600').send(png);
+});
+// The picture itself. Like the song: only once paid, and never after the song is removed.
+app.get('/photo/:id', (req, res) => {
+  const o = db.getOrder(req.params.id);
+  if (!o || !o.paid || o.removed || !o.photo) return res.status(404).end();
+  res.type('image/jpeg').set('Cache-Control', 'private, max-age=86400').sendFile(path.basename(o.photo), { root: db.mediaDir });
+});
+// The lyric sheet: one page to print and frame. ?take=N gives the words of another of the record's takes.
+app.get('/g/:id/sheet', (req, res) => {
+  const o = db.getOrder(req.params.id);
+  if (!o || !o.paid || o.removed || o.tier !== 'platinum') {
+    return res.status(404).type('html').send(framed('Songpost', "This lyric sheet isn't here.", '<p>A lyric sheet to print and frame comes with a Platinum record. The link may be mistyped, or the song has been removed.</p>'));
+  }
+  const t = req.query.take != null ? o.takes[parseInt(req.query.take, 10)] : null, words = shown(o);
+  res.set('Cache-Control', 'private, no-cache').type('html').send(sheetHtml({
+    title: (t && t.title) || words.title, lyrics: (t && t.lyrics) || words.lyrics, recipient: o.recipient,
+    from: o.group_names || o.sender, paidAt: o.paid_at, photoUrl: photoUrl(o), backUrl: `/g/${o.id}`, signature: signatureOf(o) }));
 });
 
 // Some engines insist on a callback address. We poll instead.
@@ -770,9 +901,17 @@ const giftHtml = fs.readFileSync(path.join(__dirname, 'public', 'gift.html'), 'u
 app.get('/g/:id', (req, res) => {
   const o = db.getOrder(req.params.id);
   const live = o && o.paid && !o.removed;
-  const title = live ? `${o.recipient}, ${o.sender} made you a song` : 'Songpost';
-  const desc = live ? `"${shown(o).title}" - press play to hear it.` : 'Turn their story or theme into a song.';
-  res.status(live ? 200 : 404).type('html').send(giftHtml.replace(/\{\{TITLE\}\}/g, esc(title)).replace(/\{\{DESC\}\}/g, esc(desc)));
+  const title = live ? `A song commissioned for ${o.recipient} by ${o.sender}` : 'Songpost';
+  const desc = live ? `"${shown(o).title}" - break the seal to hear it.` : 'Turn their story or theme into a song.';
+  // With a picture, a text message shows the record with their name on it and not a bare link. The address changes with
+  // what is on the record, so an app that has kept an old picture asks for the new one.
+  const stamp = live ? crypto.createHash('sha1').update([o.recipient, o.sender, shown(o).title, o.tier].join('|')).digest('hex').slice(0, 8) : '';
+  const og = live && card.canDraw(o.recipient) ? [`<meta property="og:type" content="website">`, `<meta property="og:url" content="${esc(giftUrl(o.id))}">`,
+    `<meta property="og:image" content="${esc(giftUrl(o.id))}/card.png?v=${stamp}">`, `<meta property="og:image:type" content="image/png">`,
+    `<meta property="og:image:width" content="${card.W}">`, `<meta property="og:image:height" content="${card.H}">`,
+    `<meta property="og:image:alt" content="${esc(`A ${o.tier === 'platinum' ? 'platinum' : 'gold'} record with the name ${o.recipient} on its label`)}">`,
+    `<meta name="twitter:card" content="summary_large_image">`].join('\n') + '\n' : '';
+  res.status(live ? 200 : 404).type('html').send(giftHtml.replace(/\{\{TITLE\}\}/g, () => esc(title)).replace(/\{\{DESC\}\}/g, () => esc(desc)).replace('{{OG}}', () => og));
 });
 
 // The page an invited person opens to add their memories to a song made together. public/join.js fills it in.
@@ -936,6 +1075,8 @@ app.post('/admin/engine', (req, res) => {
   const engine = String(req.body.engine || ''), model = String(req.body.model || '');
   if (ENGINE_PAIR.includes(engine) && engineReady(engine)) db.setSetting('music_engine', engine);
   if (mureka.MODELS.includes(model)) db.setSetting('mureka_model', model);
+  const premium = String(req.body.premium || '');
+  if (premium === 'off' || (mureka.MODELS.includes(premium) && premium !== 'auto')) db.setSetting('premium_model', premium);
   estimateCache = { at: 0, value: 0 };
   res.redirect('/admin?key=' + encodeURIComponent(cfg.adminKey) + '#engines');
 });
@@ -986,8 +1127,8 @@ app.get('/health', (req, res) => {
 // Costs and earnings for the admin page, worked out from what the site has counted and the prices in the settings.
 function money(sinceDay) {
   const u = db.usageTotals(sinceDay), get = k => u[k] || { n: 0, amount: 0 };
-  const recordings = get('rec_take').n + get('rec_redo').n + get('rec_second').n;
-  const minutes = (get('rec_take').amount + get('rec_redo').amount + get('rec_second').amount) / 60;
+  const recordings = get('rec_take').n + get('rec_redo').n + get('rec_second').n + get('rec_premium').n;
+  const minutes = (get('rec_take').amount + get('rec_redo').amount + get('rec_second').amount + get('rec_premium').amount) / 60;
   // Songs from an engine that charges by the song are costed at what each one cost; the rest by the minute.
   const music = Math.max(0, minutes - get('rec_flat').amount / 60) * cfg.costMusicPerMinute + get('rec_flat_usd').amount;
   const claude = get('claude_in').amount / 1e6 * cfg.costClaudeInPerMTok + get('claude_out').amount / 1e6 * cfg.costClaudeOutPerMTok;
@@ -1079,20 +1220,24 @@ app.get('/admin', (req, res) => {
     <div class="wrap"><table><tr><th>Goes to</th><th>Set up after a song for</th><th>Their date each year</th><th>Holidays too</th></tr>
     ${reminders.map(r => `<tr><td>${esc(r.email)}</td><td>${esc(r.recipient || '')}</td><td>${esc(r.month_day || '')}</td><td>${r.holidays ? 'Yes' : ''}</td></tr>`).join('')}</table></div>`;
   // Which engine records the songs. Only shown when the site runs on ElevenLabs or Mureka.
-  const act = activeName(), bak = backupName(), mModel = mureka.model();
+  const act = activeName(), bak = backupName(), mModel = mureka.model(), pNow = premiumModel();
+  const pSet = db.getSetting('premium_model'), pWant = pSet != null ? pSet : (mureka.MODELS.includes(cfg.premiumModel) ? cfg.premiumModel : 'off');
   const engines = !ENGINE_PAIR.includes(cfg.musicEngine) ? '' : `<h2 id="engines">Music engines</h2>
     <p>Songs are recorded on <b>${esc(ENGINE_LABELS[act])}</b>${act === 'mureka' ? ' (model ' + esc(mModel) + ')' : ''}. ${bak ? `If it cannot record a song, <b>${esc(ENGINE_LABELS[bak])}</b> records it instead, and the customer notices nothing.` : '<b>There is no backup engine.</b> Add the key for the other engine in your host\'s settings to have one.'}
       To compare the two by ear, record a song, switch engines here, then press "Record another take" on the same song: the second take is made by the other engine from the same words.</p>
     <form method="post" action="/admin/engine" class="add"><input type="hidden" name="key" value="${key}">
       <label>Record songs on <select name="engine" style="display:block;font:inherit;padding:6px 8px;margin-top:3px">${ENGINE_PAIR.map(n => `<option value="${n}"${n === act ? ' selected' : ''}${engineReady(n) ? '' : ' disabled'}>${esc(ENGINE_LABELS[n])}${engineReady(n) ? '' : ' (no key yet)'}</option>`).join('')}</select></label>
       <label>Mureka model <select name="model" style="display:block;font:inherit;padding:6px 8px;margin-top:3px">${mureka.MODELS.filter(m => m !== 'auto').map(m => `<option value="${m}"${m === mModel ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+      <label>Platinum's premium recording <select name="premium" style="display:block;font:inherit;padding:6px 8px;margin-top:3px"><option value="off"${pWant === 'off' ? ' selected' : ''}>Off</option>${mureka.MODELS.filter(m => m !== 'auto').map(m => `<option value="${m}"${m === pWant ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
       <button>Save</button></form>
-    <p class="t-note">Every take in the Songs list below says which engine recorded it.</p>`;
+    <p class="t-note">${pNow ? `A Platinum record is recorded once more after payment on <b>${esc(pNow)}</b>, and that recording plays first on the gift page. The buyer keeps every take.`
+      : 'Platinum has no premium recording at the moment, and the pay step does not offer one: ' + (act !== 'mureka' ? 'it needs Mureka to be the engine that records the songs.' : pWant === 'off' ? 'it is switched off here.' : 'it needs a different Mureka model from the one every song is recorded on.')}
+      Every take in the Songs list below says which engine recorded it.</p>`;
   const steps = [['arrived', 'Arrived'], ['started', 'Started the questions'], ['lyrics', 'Got lyrics'], ['preview', 'Heard the preview'], ['clickpay', 'Clicked pay'], ['paid', 'Paid']];
   const funnel = steps.map(([k, label]) => `<tr><td>${label}</td><td>${f[k] || 0}</td></tr>`).join('');
   const cameBy = o => [o.group_id ? 'made together' : '', o.via === 'gift' ? 'from a gift page' : o.via === 'join' ? 'from a group song' : '', o.ref_code ? 'partner: ' + o.ref_code : ''].filter(Boolean).join(', ');
   const rows = orders.map(o => `<tr><td>${when(o.created_at)}</td><td>${esc(o.recipient)}</td><td>${esc(o.group_names || o.sender)}${cameBy(o) ? `<br><span class="t-note">${esc(cameBy(o))}</span>` : ''}</td><td>${esc(o.contact || '')}</td>
-    <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? ' REMOVED' : ''}</td><td>${o.takes.length}${o.takes.length ? '<br><span class="t-note">' + esc(o.takes.map(t => t.engine || '?').join(', ')) + '</span>' : ''}${o.takes.some(t => t.stoodInFor) ? '<br><span class="t-note">The backup engine recorded a take, because the first could not.</span>' : ''}${o.takes.some(t => t.plain) ? '<br><span class="t-note">The studio turned down the fuller notes, so the plain ones were used.</span>' : ''}</td>
+    <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? ' REMOVED' : ''}</td><td>${o.takes.length}${o.takes.length ? '<br><span class="t-note">' + esc(o.takes.map(t => (t.engine || '?') + (t.premium ? ' premium' : '')).join(', ')) + '</span>' : ''}${o.takes.some(t => t.stoodInFor) ? '<br><span class="t-note">The backup engine recorded a take, because the first could not.</span>' : ''}${o.status !== 'generating' && owedKind(o) === 'premium' ? '<br><span class="t-note"><b>The premium recording is still owed.</b> It is tried again by itself; the buyer can also press "Record it now".</span>' : ''}${o.takes.some(t => t.plain) ? '<br><span class="t-note">The studio turned down the fuller notes, so the plain ones were used.</span>' : ''}</td>
     <td>${o.paid ? esc(tierName(o.tier)) + ' $' + (o.price_cents / 100).toFixed(2) : ''}</td>
     <td>${o.schedule_date ? esc(o.schedule_date) + (o.schedule_sent_at ? ' sent' : o.schedule_failed_at ? ' could not be delivered' : o.schedule_queued_at ? ' sending' : ' waiting') : ''}${o.redo_at ? '<br>redo used' : ''}</td>
     <td>${o.paid ? `<a href="/g/${esc(o.id)}">page</a>` : ''}</td>
@@ -1163,7 +1308,7 @@ app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] })
 /* ---------- errors ---------- */
 app.use((err, req, res, next) => {
   if (err instanceof PublicError) return res.status(err.status).json({ error: err.publicMessage });
-  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That is too much text. Shorten it and try again.' });
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: /\/photo$/.test(req.path) ? 'That picture is too large. Choose a smaller one.' : /\/voice$/.test(req.path) ? 'That recording is too large. Record it again.' : 'That is too much text. Shorten it and try again.' });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong on our side. Try again.' });
 });
@@ -1175,7 +1320,7 @@ function sendDue() {
   const cutoff = new Date(now.getTime() - cfg.sendHourUtc * 3600 * 1000).toISOString().slice(0, 10); // today, once the send hour has passed
   for (const o of db.dueSchedules(cutoff)) {
     db.updateOrder(o.id, { schedule_queued_at: Date.now() }); // queued once; delivery and retries are the outbox's job
-    notify.send(o.id, o.schedule_to, `${o.sender} made you a song`, `${o.recipient}, ${o.sender} made you a song. Press play: ${giftUrl(o.id)}`, 'schedule');
+    notify.send(o.id, o.schedule_to, `${o.sender} had a song written for you`, `${o.recipient}, ${o.sender} had a song written for you. Open it here: ${giftUrl(o.id)}`, 'schedule');
   }
 }
 // A scheduled song counts as sent only once its message has really gone out. The sender hears either way.
@@ -1253,6 +1398,7 @@ setInterval(() => notify.retryPending().catch(e => console.error('Message retry 
 setInterval(cleanUp, 6 * 3600 * 1000).unref();
 
 recoverInterrupted();
+resumeOwed(); // a premium recording that a restart interrupted, or that was never started, is made now
 
 app.listen(cfg.port, () => {
   console.log(`Songpost running at ${cfg.baseUrl} (port ${cfg.port}), music engine: ${activeName()}${backupName() ? ', backup: ' + backupName() : ''}`);

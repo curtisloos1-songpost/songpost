@@ -55,7 +55,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS health (service TEXT PRIMARY KEY, last_ok_at
 // Columns added after the first version. Each is added once; an existing database keeps its data.
 function addColumns(table, cols) {
   for (const col of cols) {
-    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch (e) { /* already there */ }
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); }
+    catch (e) { if (!/duplicate column/i.test(String(e && e.message))) throw e; } // already there is fine; anything else is not
   }
 }
 addColumns('orders', ['gen_started_at INTEGER', 'language TEXT', 'say_name TEXT', 'contact TEXT', "tier TEXT DEFAULT 'gold'",
@@ -69,6 +70,12 @@ addColumns('orders', ['gen_started_at INTEGER', 'language TEXT', 'say_name TEXT'
 addColumns('orders', ['group_id TEXT', 'group_names TEXT', 'via TEXT', 'from_order TEXT', 'chain_depth INTEGER NOT NULL DEFAULT 0', 'ref_code TEXT', 'heard TEXT']);
 // arrangement: the producer's notes sent to the studio with the style (what changes from part to part, and what to avoid).
 addColumns('orders', ['arrangement TEXT']);
+// premium: a Platinum record's recording on the premium model. 0 not part of this song, 1 owed, 2 recorded.
+// photo: the file name of the picture the sender added to the gift page (Platinum).
+addColumns('orders', ['premium INTEGER NOT NULL DEFAULT 0', 'photo TEXT']);
+// The sender's own touches on the gift page. answers_json: what they told us, as [{ q, a }]. words: which of those
+// they chose to show, as [index]. signature: the strokes they drew. spoken: the file name of their spoken message (voice is the singer they chose).
+addColumns('orders', ['answers_json TEXT', 'words TEXT', 'signature TEXT', 'spoken TEXT']);
 addColumns('events', ['order_id TEXT']);
 // featured: a reply the recipient allowed to be shared, which the owner has chosen to show on the site as a testimonial.
 addColumns('replies', ['featured INTEGER NOT NULL DEFAULT 0']);
@@ -96,7 +103,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY AUTOINCREMEN
 
 const COLUMNS = ['status', 'error', 'paid', 'paid_at', 'price_cents', 'stripe_session', 'title', 'lyrics', 'style', 'note',
   'takes_json', 'chosen', 'attempts', 'engine', 'gen_started_at', 'tier', 'schedule_to', 'schedule_date', 'schedule_sent_at',
-  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement'];
+  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement', 'premium', 'photo', 'words', 'signature', 'spoken'];
 
 function hydrate(row) {
   if (!row) return null;
@@ -106,6 +113,11 @@ function hydrate(row) {
 }
 const today = () => new Date().toISOString().slice(0, 10);
 
+// Deletes one file from the media folder. A missing file is fine.
+function unlinkMedia(name) {
+  if (!name) return;
+  try { fs.unlinkSync(path.join(mediaDir, path.basename(String(name)))); } catch (e) { /* already gone */ }
+}
 // Deletes the audio files of an order's takes. Missing files are fine.
 function unlinkTakes(takes) {
   for (const t of takes || []) {
@@ -118,14 +130,15 @@ function unlinkTakes(takes) {
 
 module.exports = {
   mediaDir,
+  unlinkMedia,
   createOrder(o) {
     db.prepare(`INSERT INTO orders (id, key, created_at, status, price_cents, recipient, sender, relationship, occasion,
       tone, genre, voice, details, title, lyrics, style, note, attempts, ip, language, say_name, contact, gen_started_at, gen_kind, gen_event_id,
-      group_id, group_names, via, from_order, chain_depth, ref_code, heard, arrangement)
+      group_id, group_names, via, from_order, chain_depth, ref_code, heard, arrangement, answers_json)
       VALUES (@id, @key, @created_at, @status, @price_cents, @recipient, @sender, @relationship, @occasion,
       @tone, @genre, @voice, @details, @title, @lyrics, @style, @note, @attempts, @ip, @language, @say_name, @contact, @gen_started_at, @gen_kind, @gen_event_id,
-      @group_id, @group_names, @via, @from_order, @chain_depth, @ref_code, @heard, @arrangement)`)
-      .run(Object.assign({ gen_kind: 'take', gen_event_id: null, group_id: null, group_names: null, via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null, arrangement: '' }, o));
+      @group_id, @group_names, @via, @from_order, @chain_depth, @ref_code, @heard, @arrangement, @answers_json)`)
+      .run(Object.assign({ gen_kind: 'take', gen_event_id: null, group_id: null, group_names: null, via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null, arrangement: '', answers_json: '[]' }, o));
   },
   getOrder(id) {
     return hydrate(db.prepare('SELECT * FROM orders WHERE id = ?').get(String(id || '')));
@@ -144,6 +157,10 @@ module.exports = {
   // Recordings that were running when the server last stopped.
   generatingOrders() {
     return db.prepare(`SELECT * FROM orders WHERE status = 'generating'`).all().map(hydrate);
+  },
+  // Platinum records that were sold with a premium recording and have not had it yet.
+  owedPremium() {
+    return db.prepare(`SELECT * FROM orders WHERE paid = 1 AND removed = 0 AND tier = 'platinum' AND premium = 1 AND status != 'generating'`).all().map(hydrate);
   },
   // Counts across every song, however many there are.
   totals() {
@@ -171,6 +188,7 @@ module.exports = {
     const o = this.getOrder(id);
     if (!o) return false;
     unlinkTakes(o.takes);
+    unlinkMedia(o.photo); unlinkMedia(o.spoken);
     db.transaction(() => {
       for (const t of ['replies', 'reports', 'outbox', 'events', 'reminders', 'samples']) db.prepare(`DELETE FROM ${t} WHERE order_id = ?`).run(o.id);
       // what the people who made it together wrote goes too
