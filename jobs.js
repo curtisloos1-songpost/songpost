@@ -4,7 +4,7 @@ const path = require('path');
 const cfg = require('./config');
 const db = require('./db');
 const notify = require('./notify');
-const { getEngine } = require('./engines');
+const { getEngine, getBackup } = require('./engines');
 const { parseSections } = require('./sections');
 
 /*
@@ -85,10 +85,24 @@ async function run(id) {
   if (!order) return;
   const kind = order.gen_kind || 'take';
   try {
-    const engine = getEngine();
+    let engine = getEngine(), out, stoodInFor = null;
     const voice = /duet/i.test(order.voice) ? 'duet' : /woman/i.test(order.voice) ? 'female' : /man/i.test(order.voice) ? 'male' : 'any';
-    const out = await engine.generate({ title: order.title, style: order.style, lyrics: sungLyrics(order), voice, genre: order.genre, tone: order.tone, arrangement: order.arrangement || '' });
-    db.noteOk('music');
+    const song = { title: order.title, style: order.style, lyrics: sungLyrics(order), voice, genre: order.genre, tone: order.tone, arrangement: order.arrangement || '' };
+    const why = e => (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed';
+    try {
+      out = await engine.generate(song);
+    } catch (e) {
+      // The first engine could not record. If there is a backup, the song is recorded there and the customer notices nothing.
+      // Not when the song itself was turned down (422): that is the customer's to change, and no outage.
+      const backup = getBackup();
+      if (!backup || (e && e.status === 422)) throw e;
+      console.error(`The ${engine.name} engine could not record order ${id}; recording it on ${backup.name} instead.`, e);
+      db.noteErr('music:' + engine.name, why(e));
+      stoodInFor = engine.name; engine = backup;
+      try { out = await engine.generate(song); }
+      catch (e2) { if (!(e2 && e2.status === 422)) db.noteErr('music:' + engine.name, why(e2)); throw Object.assign(e2, { noted: true }); }
+    }
+    db.noteOk('music:' + engine.name);
     const fresh = db.getOrder(id);
     if (!fresh) return; // the song was deleted while it was recording
     const n = fresh.takes.length;
@@ -103,14 +117,16 @@ async function run(id) {
     const takes = fresh.takes.concat({ file, preview, mime: out.mime, duration: out.durationSec, genSeconds, engine: engine.name,
       previewSection: at != null ? { name: target.name, lines: target.lines, hasName: target.hasName } : null,
       title: order.title, lyrics: order.lyrics, style: order.style, arrangement: order.arrangement || '',
-      plain: out.plan === 'plain' || undefined }); // plain: the studio turned down the full plan, and the plain one was used
+      plain: out.plan === 'plain' || undefined, // plain: the studio turned down the full plan, and the plain one was used
+      stoodInFor: stoodInFor || undefined });   // stoodInFor: the engine that could not record this take, when the backup did
     const patch = { status: 'ready', error: null, takes, engine: engine.name, gen_kind: null, gen_event_id: null };
     // A redo replaces the song on the gift page. A Platinum second take, or a preview that finishes after
     // the song was paid for, is added without changing the recording the customer chose.
     if (kind === 'redo' || (kind === 'take' && !fresh.paid)) patch.chosen = takes.length - 1;
     db.updateOrder(id, patch);
     // Count the music made, for the cost figures on the admin page.
-    try { db.addUsage('rec_' + kind, 1, out.durationSec || 0); } catch (e) { /* counting never blocks a song */ }
+    // An engine that charges by the song says what this one cost; the rest are costed by the minute.
+    try { db.addUsage('rec_' + kind, 1, out.durationSec || 0); if (out.flatCost != null) { db.addUsage('rec_flat', 1, out.durationSec || 0); db.addUsage('rec_flat_usd', 1, out.flatCost); } } catch (e) { /* counting never blocks a song */ }
     if (kind === 'redo') {
       notify.send(id, fresh.contact, `Your new recording for ${fresh.recipient} is ready`,
         `We recorded your song for ${fresh.recipient} again. The new recording is on the same link:\n${cfg.baseUrl}/g/${id}`);
@@ -118,7 +134,7 @@ async function run(id) {
   } catch (e) {
     console.error('Recording failed for order', id, e);
     // A song the music service turned down for its words (422) is the customer's to fix, not an outage.
-    if (!(e && e.status === 422)) db.noteErr('music', (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed');
+    if (!(e && (e.status === 422 || e.noted))) { let name = 'unknown'; try { name = getEngine().name; } catch (x) { /* a wrong engine name */ } db.noteErr('music:' + name, (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed'); }
     fail(id, e.publicMessage || 'The recording did not finish. Try again.');
   }
 }

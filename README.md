@@ -33,6 +33,7 @@ The site talks to music through one function, described at the top of `src/engin
 
 ```
 MUSIC_ENGINE=elevenlabs   # official API, licensed for commercial use on paid plans
+MUSIC_ENGINE=mureka       # official API; charges by the song
 MUSIC_ENGINE=sunoapi      # unofficial Suno reseller: previews only, checkout stays off
 MUSIC_ENGINE=mock         # plain tones, costs nothing, for testing the site
 ```
@@ -237,6 +238,16 @@ checking by ear. Do the first live run with Stripe in test mode.
 - ElevenLabs' terms are confirmed to cover selling songs to consumers.
 - A message provider is connected and tested.
 - `DATA_DIR` is backed up.
+
+## What changed in 0.9.0
+
+- **A second music engine: Mureka.** Set `MUREKA_API_KEY` (credit is bought at platform.mureka.ai, from $10) and Songpost can record on Mureka as well as ElevenLabs. Mureka is given the lyrics and one description of the sound, and arranges and times the song itself.
+- **Each engine is the other's backup.** With both keys set, if the engine in use cannot record a song (it is down, busy, or out of credit), the other records it straight away and the customer notices nothing. A song that an engine turns down for its words is not passed to the other: that is the customer's to change. `MUSIC_BACKUP=off` turns the backup off.
+- **Switch engines on the admin page**, under **Music engines**, with no redeploy. To compare the two by ear: record a song, switch, and press "Record another take" on the same song. The Songs list says which engine made each take.
+- **Costs.** Mureka charges by the song (`mureka-9` $0.045, `mureka-9.5` $0.15); the admin page counts those songs at that price and ElevenLabs songs by the minute.
+- **Is everything working?** now has a line for each engine.
+- New file: `src/engines/mureka.js`. `arrange.js` knows where it goes.
+- Not yet run against the real Mureka service from here: it was built from Mureka's published API reference and tested with a stand-in. Mureka's terms on commercial use, and its training data (which it does not disclose), are for you and your lawyer to weigh before selling songs made with it.
 
 ## What changed in 0.8.8
 

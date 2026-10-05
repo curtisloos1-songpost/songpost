@@ -46,6 +46,9 @@ db.exec(`
 // of real money, so a practice unlock adds to n and nothing to amount.
 db.exec(`CREATE TABLE IF NOT EXISTS usage (day TEXT, kind TEXT, n INTEGER NOT NULL DEFAULT 0, amount REAL NOT NULL DEFAULT 0, PRIMARY KEY (day, kind))`);
 
+// The owner's choices made on the admin page (which music engine records the songs).
+db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
+
 // Whether each outside service (claude, music, stripe, messages) last worked, for the health check.
 db.exec(`CREATE TABLE IF NOT EXISTS health (service TEXT PRIMARY KEY, last_ok_at INTEGER, last_err_at INTEGER, last_err TEXT, fails_in_row INTEGER NOT NULL DEFAULT 0)`);
 
@@ -323,6 +326,8 @@ module.exports = {
       ON CONFLICT(service) DO UPDATE SET last_err_at = excluded.last_err_at, last_err = excluded.last_err, fails_in_row = fails_in_row + 1`)
       .run(service, Date.now(), String(message || '').slice(0, 300)); } catch (e) { /* ignore */ }
   },
+  getSetting(key) { const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key); return r ? r.value : null; },
+  setSetting(key, value) { db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value)); },
   healthAll() { const out = {}; for (const r of db.prepare('SELECT * FROM health').all()) out[r.service] = r; return out; },
 
   // Adds to today's running count for one kind of use (see the usage table above).

@@ -32,6 +32,12 @@ const cfg = {
   elevenModel: str('ELEVENLABS_MODEL', 'music_v2_5'),
   elevenMaxSeconds: int('ELEVENLABS_MAX_SECONDS', 210),
   elevenSecondsPerLine: parseFloat(process.env.ELEVENLABS_SECONDS_PER_LINE) || 4.5,
+  // Mureka (https://platform.mureka.ai): the second engine. With both keys set, each stands in when the other cannot record.
+  murekaKey: str('MUREKA_API_KEY'),
+  murekaModel: str('MUREKA_MODEL', 'mureka-9').toLowerCase(),
+  murekaPollMs: int('MUREKA_POLL_MS', 5000),
+  // "off" for no backup engine; otherwise the other of ElevenLabs and Mureka is the backup when it has a key.
+  musicBackup: str('MUSIC_BACKUP').toLowerCase(),
   sunoapiKey: str('SUNOAPI_KEY'),
   sunoapiModel: str('SUNOAPI_MODEL', 'V6'),
   sunoapiDuration: int('SUNOAPI_DURATION', 180),
@@ -72,6 +78,7 @@ const cfg = {
   // What things cost, for the "Costs and earnings" figures on the admin page. These are the suppliers' list
   // prices; change them here if your plan's prices differ. They only affect what the admin page reports.
   costMusicPerMinute: num('COST_MUSIC_PER_MINUTE', 0.15),            // ElevenLabs, dollars per minute of music
+  costMurekaPerSong: num('COST_MUREKA_PER_SONG', null),              // Mureka, dollars a song; unset uses Mureka's list price for the model
   costClaudeInPerMTok: num('COST_CLAUDE_INPUT_PER_MTOK', 2),         // Claude, dollars per million tokens read
   costClaudeOutPerMTok: num('COST_CLAUDE_OUTPUT_PER_MTOK', 10),      // Claude, dollars per million tokens written
   cardFeePercent: num('CARD_FEE_PERCENT', 2.9),                      // Stripe, percent of each sale

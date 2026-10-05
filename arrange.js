@@ -13,7 +13,7 @@ const path = require('path');
 
 const LAYOUT = {
   'src': ['config.js', 'db.js', 'errors.js', 'jobs.js', 'legal.json', 'limits.js', 'lyrics.js', 'notify.js', 'occasions.json', 'page.html', 'sections.js'],
-  'src/engines': ['index.js', 'elevenlabs.js', 'mock.js', 'sunoapi.js'],
+  'src/engines': ['index.js', 'elevenlabs.js', 'mock.js', 'mureka.js', 'sunoapi.js'],
   'public': ['common.js', 'gift.html', 'gift.js', 'index.html', 'join.js', 'make.js', 'styles.css', 'testimonials.json'],
 };
 

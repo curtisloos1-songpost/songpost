@@ -10,7 +10,8 @@ const notify = require('./src/notify');
 const { PublicError } = require('./src/errors');
 const { writeLyrics, reviewContent, suggestSound, checkSpelling, tidyArrangement, listNames, THEME } = require('./src/lyrics');
 const { startGeneration, recoverInterrupted } = require('./src/jobs');
-const { getEngine } = require('./src/engines');
+const { getEngine, activeName, backupName, ready: engineReady, PAIR: ENGINE_PAIR, LABELS: ENGINE_LABELS } = require('./src/engines');
+const mureka = require('./src/engines/mureka');
 const LEGAL = require('./src/legal.json');
 const OCCASIONS = require('./src/occasions.json');
 
@@ -167,13 +168,13 @@ function ownedOrder(req) {
   return o;
 }
 // How long a recording usually takes: the average of recent real ones, or a starting guess per engine.
-const FIRST_GUESS = { mock: 3, elevenlabs: 75, sunoapi: 150 };
+const FIRST_GUESS = { mock: 3, elevenlabs: 75, mureka: 75, sunoapi: 150 };
 let estimateCache = { at: 0, value: 0 };
 function estimateSeconds() {
   if (Date.now() - estimateCache.at < 30000) return estimateCache.value;
   const times = [];
-  for (const o of db.listOrders(60)) for (const t of o.takes) if (t.genSeconds && t.engine === cfg.musicEngine && times.length < 20) times.push(t.genSeconds);
-  const value = times.length >= 3 ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : (FIRST_GUESS[cfg.musicEngine] || 90);
+  for (const o of db.listOrders(60)) for (const t of o.takes) if (t.genSeconds && t.engine === activeName() && times.length < 20) times.push(t.genSeconds);
+  const value = times.length >= 3 ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : (FIRST_GUESS[activeName()] || 90);
   estimateCache = { at: Date.now(), value };
   return value;
 }
@@ -538,7 +539,7 @@ app.post('/api/orders/:id/checkout', wrap(async (req, res) => {
   if (testCheckout) return res.json({ url: `${cfg.baseUrl}/?order=${o.id}&session_id=test` });
   if (!stripe) throw new PublicError('Payments are not set up yet.', 503);
   // An unofficial music engine is fine for previews, but we don't sell what it makes unless told to.
-  if (cfg.musicEngine === 'sunoapi' && !cfg.allowUnofficialEngine) throw new PublicError('Payments are off while the site is using a test music engine.', 503);
+  if (activeName() === 'sunoapi' && !cfg.allowUnofficialEngine) throw new PublicError('Payments are off while the site is using a test music engine.', 503);
   const params = {
     mode: 'payment',
     line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: price, product_data: { name: `${tierName(tier)} record for ${o.recipient}` } } }],
@@ -718,7 +719,7 @@ function sampleSource(s) {
   if (!s.order_id) return s.file ? { file: s.file, mime: s.mime || 'audio/mpeg', title: s.title, note: s.outside ? OUTSIDE_NOTE : SAME_NOTE } : null;
   const o = db.getOrder(s.order_id), t = o && o.paid && !o.removed ? o.takes[o.chosen] : null;
   // A song made here before the music engine was changed was recorded with the earlier one.
-  return t ? { file: t.file, mime: t.mime, title: s.title || shown(o).title, note: !t.engine || t.engine === cfg.musicEngine ? SAME_NOTE : 'Recorded on Songpost.' } : null;
+  return t ? { file: t.file, mime: t.mime, title: s.title || shown(o).title, note: !t.engine || t.engine === activeName() ? SAME_NOTE : 'Recorded on Songpost.' } : null;
 }
 app.get('/samples.json', (req, res) => {
   const list = db.listSamples().map(s => ({ s, src: sampleSource(s) })).filter(x => x.src).slice(0, MAX_SAMPLES)
@@ -929,6 +930,15 @@ app.post('/admin/feature', (req, res) => {
   db.setReplyFeatured(parseInt(req.body.id, 10), !req.body.off);
   res.redirect('/admin?key=' + encodeURIComponent(cfg.adminKey));
 });
+// Which music engine records the songs, and which Mureka model. The other engine stays ready as the backup.
+app.post('/admin/engine', (req, res) => {
+  if (!adminOk(req)) return res.status(404).end();
+  const engine = String(req.body.engine || ''), model = String(req.body.model || '');
+  if (ENGINE_PAIR.includes(engine) && engineReady(engine)) db.setSetting('music_engine', engine);
+  if (mureka.MODELS.includes(model)) db.setSetting('mureka_model', model);
+  estimateCache = { at: 0, value: 0 };
+  res.redirect('/admin?key=' + encodeURIComponent(cfg.adminKey) + '#engines');
+});
 // Partners: a shop, planner or other business that sends buyers through its own link, /?ref=<code>.
 app.post('/admin/partner', (req, res) => {
   if (!adminOk(req)) return res.status(404).end();
@@ -953,11 +963,15 @@ app.post('/admin/partner-remove', (req, res) => {
 // "failing" means three or more failures in a row with no success since.
 function healthReport() {
   const h = db.healthAll();
-  const connected = { claude: !!cfg.anthropicKey, music: cfg.musicEngine === 'mock' || (cfg.musicEngine === 'elevenlabs' ? !!cfg.elevenKey : !!cfg.sunoapiKey),
-    stripe: !!stripe, messages: notify.live() };
-  const names = { claude: 'Claude (lyrics, suggestions, content check)', music: `Music engine (${cfg.musicEngine})`, stripe: 'Stripe (payments)', messages: 'Email and text messages' };
+  const active = activeName(), backup = backupName();
+  const connected = { claude: !!cfg.anthropicKey, music: engineReady(active), music_backup: true, stripe: !!stripe, messages: notify.live() };
+  const names = { claude: 'Claude (lyrics, suggestions, content check)', music: `Music engine (${active})` };
+  if (backup) names.music_backup = `Backup music engine (${backup})`;
+  Object.assign(names, { stripe: 'Stripe (payments)', messages: 'Email and text messages' });
+  // Each engine keeps its own record, so switching engines doesn't mix one's failures with the other's.
+  const record = key => (key === 'music' ? h['music:' + active] || (active === cfg.musicEngine && h.music) : key === 'music_backup' ? h['music:' + backup] : h[key]) || {};
   return Object.keys(names).map(key => {
-    const r = h[key] || {};
+    const r = record(key);
     const state = !connected[key] ? 'off' : (r.fails_in_row >= 3 && (r.last_err_at || 0) > (r.last_ok_at || 0)) ? 'failing' : r.last_ok_at ? 'ok' : r.last_err_at ? 'trouble' : 'idle';
     return { key, name: names[key], state, lastOk: r.last_ok_at || null, lastErr: r.last_err_at || null, error: r.last_err || '', failsInRow: r.fails_in_row || 0 };
   });
@@ -974,7 +988,8 @@ function money(sinceDay) {
   const u = db.usageTotals(sinceDay), get = k => u[k] || { n: 0, amount: 0 };
   const recordings = get('rec_take').n + get('rec_redo').n + get('rec_second').n;
   const minutes = (get('rec_take').amount + get('rec_redo').amount + get('rec_second').amount) / 60;
-  const music = minutes * cfg.costMusicPerMinute;
+  // Songs from an engine that charges by the song are costed at what each one cost; the rest by the minute.
+  const music = Math.max(0, minutes - get('rec_flat').amount / 60) * cfg.costMusicPerMinute + get('rec_flat_usd').amount;
   const claude = get('claude_in').amount / 1e6 * cfg.costClaudeInPerMTok + get('claude_out').amount / 1e6 * cfg.costClaudeOutPerMTok;
   const sales = get('sale').n, revenue = get('sale').amount / 100;
   const fees = revenue * cfg.cardFeePercent / 100 + sales * cfg.cardFeeFixedCents / 100;
@@ -1016,7 +1031,7 @@ app.get('/admin', (req, res) => {
       ${moneyRow('<b>Left after these costs</b>', m => `<b>${usd(m.left)}</b>`)}
       ${moneyRow('Practice unlocks (no money)', m => m.practice)}
     </table></div>
-    <p>These are estimates: what the site counted, times the list prices in the settings ($${cfg.costMusicPerMinute} a minute of music, $${cfg.costClaudeInPerMTok} and $${cfg.costClaudeOutPerMTok} per million Claude tokens, ${cfg.cardFeePercent}% plus ${cfg.cardFeeFixedCents}¢ a sale).
+    <p>These are estimates: what the site counted, times the list prices in the settings ($${cfg.costMusicPerMinute} a minute of ElevenLabs music, Mureka's price for each song it records, $${cfg.costClaudeInPerMTok} and $${cfg.costClaudeOutPerMTok} per million Claude tokens, ${cfg.cardFeePercent}% plus ${cfg.cardFeeFixedCents}¢ a sale).
       Check them against your ElevenLabs, Claude and Stripe accounts now and then. Refunds, advertising and the fixed monthly costs are not included.
       Counting began on ${esc(db.firstUsageDay() || 'the first song after this version went live')}; anything before that is not in these figures.</p>`;
   // How songs spread: from person to person, from partners, and what buyers say brought them.
@@ -1063,11 +1078,21 @@ app.get('/admin', (req, res) => {
     <p>${reminders.length} set up. ${canSchedule() ? 'An email goes out a week before each date, once a year.' : '<b>Reminders are not offered to buyers yet, because no email service is connected.</b>'}</p>
     <div class="wrap"><table><tr><th>Goes to</th><th>Set up after a song for</th><th>Their date each year</th><th>Holidays too</th></tr>
     ${reminders.map(r => `<tr><td>${esc(r.email)}</td><td>${esc(r.recipient || '')}</td><td>${esc(r.month_day || '')}</td><td>${r.holidays ? 'Yes' : ''}</td></tr>`).join('')}</table></div>`;
+  // Which engine records the songs. Only shown when the site runs on ElevenLabs or Mureka.
+  const act = activeName(), bak = backupName(), mModel = mureka.model();
+  const engines = !ENGINE_PAIR.includes(cfg.musicEngine) ? '' : `<h2 id="engines">Music engines</h2>
+    <p>Songs are recorded on <b>${esc(ENGINE_LABELS[act])}</b>${act === 'mureka' ? ' (model ' + esc(mModel) + ')' : ''}. ${bak ? `If it cannot record a song, <b>${esc(ENGINE_LABELS[bak])}</b> records it instead, and the customer notices nothing.` : '<b>There is no backup engine.</b> Add the key for the other engine in your host\'s settings to have one.'}
+      To compare the two by ear, record a song, switch engines here, then press "Record another take" on the same song: the second take is made by the other engine from the same words.</p>
+    <form method="post" action="/admin/engine" class="add"><input type="hidden" name="key" value="${key}">
+      <label>Record songs on <select name="engine" style="display:block;font:inherit;padding:6px 8px;margin-top:3px">${ENGINE_PAIR.map(n => `<option value="${n}"${n === act ? ' selected' : ''}${engineReady(n) ? '' : ' disabled'}>${esc(ENGINE_LABELS[n])}${engineReady(n) ? '' : ' (no key yet)'}</option>`).join('')}</select></label>
+      <label>Mureka model <select name="model" style="display:block;font:inherit;padding:6px 8px;margin-top:3px">${mureka.MODELS.filter(m => m !== 'auto').map(m => `<option value="${m}"${m === mModel ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+      <button>Save</button></form>
+    <p class="t-note">Every take in the Songs list below says which engine recorded it.</p>`;
   const steps = [['arrived', 'Arrived'], ['started', 'Started the questions'], ['lyrics', 'Got lyrics'], ['preview', 'Heard the preview'], ['clickpay', 'Clicked pay'], ['paid', 'Paid']];
   const funnel = steps.map(([k, label]) => `<tr><td>${label}</td><td>${f[k] || 0}</td></tr>`).join('');
   const cameBy = o => [o.group_id ? 'made together' : '', o.via === 'gift' ? 'from a gift page' : o.via === 'join' ? 'from a group song' : '', o.ref_code ? 'partner: ' + o.ref_code : ''].filter(Boolean).join(', ');
   const rows = orders.map(o => `<tr><td>${when(o.created_at)}</td><td>${esc(o.recipient)}</td><td>${esc(o.group_names || o.sender)}${cameBy(o) ? `<br><span class="t-note">${esc(cameBy(o))}</span>` : ''}</td><td>${esc(o.contact || '')}</td>
-    <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? ' REMOVED' : ''}</td><td>${o.takes.length}${o.takes.some(t => t.plain) ? '<br><span class="t-note">The studio turned down the fuller notes, so the plain ones were used.</span>' : ''}</td>
+    <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? ' REMOVED' : ''}</td><td>${o.takes.length}${o.takes.length ? '<br><span class="t-note">' + esc(o.takes.map(t => t.engine || '?').join(', ')) + '</span>' : ''}${o.takes.some(t => t.stoodInFor) ? '<br><span class="t-note">The backup engine recorded a take, because the first could not.</span>' : ''}${o.takes.some(t => t.plain) ? '<br><span class="t-note">The studio turned down the fuller notes, so the plain ones were used.</span>' : ''}</td>
     <td>${o.paid ? esc(tierName(o.tier)) + ' $' + (o.price_cents / 100).toFixed(2) : ''}</td>
     <td>${o.schedule_date ? esc(o.schedule_date) + (o.schedule_sent_at ? ' sent' : o.schedule_failed_at ? ' could not be delivered' : o.schedule_queued_at ? ' sending' : ' waiting') : ''}${o.redo_at ? '<br>redo used' : ''}</td>
     <td>${o.paid ? `<a href="/g/${esc(o.id)}">page</a>` : ''}</td>
@@ -1113,9 +1138,10 @@ app.get('/admin', (req, res) => {
     .t-label{font-size:13px;color:#445}.t-value{font-size:26px;font-weight:600;margin:2px 0}.t-note{font-size:13px;color:#556}
     .add{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:end;margin:0 0 28px}.add label{display:block;font-size:13px;color:#445}.add input{display:block;font:inherit;padding:6px 8px;margin-top:3px;min-width:200px}.add button{font:inherit;padding:7px 14px}</style>
     <h1>Songpost admin</h1>
-    <p>${totals.songs} songs recorded, ${totals.paid} paid, $${(totals.cents / 100).toFixed(2)} in sales. Engine: ${esc(cfg.musicEngine)}. Messages: ${notify.live() ? 'being sent' : 'NOT being sent (no provider connected)'}.
+    <p>${totals.songs} songs recorded, ${totals.paid} paid, $${(totals.cents / 100).toFixed(2)} in sales. Engine: ${esc(activeName())}${backupName() ? ', with ' + esc(backupName()) + ' as backup' : ''}. Messages: ${notify.live() ? 'being sent' : 'NOT being sent (no provider connected)'}.
     Private preview: ${cfg.accessCode ? 'ON (an invite code is needed to make a song)' : 'off (anyone can make a song)'}.</p>
     <p>The site sees you as visiting from <b>${esc(req.ip)}</b>. Every visitor should show their own address here. If two people on different networks see the same one, the free-preview limit is being shared: raise TRUST_PROXY by one.</p>
+    ${engines}
     <h2>Is everything working?</h2>
     <div class="wrap"><table><tr><th>Service</th><th>Now</th><th>Last worked (UTC)</th><th>Last problem (UTC)</th><th>What went wrong</th></tr>
     ${healthReport().map(s => `<tr><td>${esc(s.name)}</td><td>${{ ok: 'Working', failing: '<b>FAILING</b>', trouble: 'Had a problem, no success yet', idle: 'Connected, not used yet', off: 'Not connected' }[s.state]}</td>
@@ -1229,12 +1255,12 @@ setInterval(cleanUp, 6 * 3600 * 1000).unref();
 recoverInterrupted();
 
 app.listen(cfg.port, () => {
-  console.log(`Songpost running at ${cfg.baseUrl} (port ${cfg.port}), music engine: ${cfg.musicEngine}`);
+  console.log(`Songpost running at ${cfg.baseUrl} (port ${cfg.port}), music engine: ${activeName()}${backupName() ? ', backup: ' + backupName() : ''}`);
   if (!cfg.anthropicKey) console.warn(cfg.devMocks ? 'DEV: using practice lyrics (no ANTHROPIC_API_KEY).' : 'WARNING: ANTHROPIC_API_KEY is not set. Lyric writing is off.');
   if (!stripe) console.warn(testCheckout ? 'DEV: test checkout is on. Songs unlock without payment.' : 'WARNING: STRIPE_SECRET_KEY is not set. Checkout is off.');
   if (stripe && !cfg.stripeWebhookSecret) console.warn('WARNING: STRIPE_WEBHOOK_SECRET is not set. Payments are only confirmed when the buyer returns to the site.');
   if (!notify.live()) console.warn('WARNING: no message provider is connected. Links, receipts and notices are queued but NOT sent, and "Send it for me on a date" is not offered. See src/notify.js.');
-  if (cfg.musicEngine === 'sunoapi') console.warn('WARNING: the music engine is an unofficial Suno reseller. Checkout is off unless ALLOW_UNOFFICIAL_ENGINE=1.');
+  if (activeName() === 'sunoapi') console.warn('WARNING: the music engine is an unofficial Suno reseller. Checkout is off unless ALLOW_UNOFFICIAL_ENGINE=1.');
   if (cfg.devMocks) console.warn('DEV_MOCKS is on. Do not use this setting on the live site.');
   if (cfg.accessCode) console.log('Private preview is ON: an invite code is needed to make a song.');
   else if (testCheckout && !/localhost|127\.0\.0\.1/.test(cfg.baseUrl)) console.warn('WARNING: test checkout is on and there is no ACCESS_CODE. Anyone who finds this address can record songs for free.');
