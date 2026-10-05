@@ -128,8 +128,10 @@ function buildPlan(song, opts) {
   const nth = (s, i) => { const m = /(\d+)\s*$/.exec(s.name); return m ? Number(m[1]) : sections.slice(0, i + 1).filter(x => kind(x) === kind(s)).length; };
   let lastChorus = sections.map(s => kind(s) === 'chorus').lastIndexOf(true);
   if (lastChorus < 0) lastChorus = sections.map(s => /chorus/i.test(s.name)).lastIndexOf(true);
+  // A pre-chorus is not a chorus: a cue or a note about "the chorus" is not for it.
+  const lift = s => /^pre/.test(kind(s));
   const about = (s, i) => cues.filter(c => (c.part === 'final chorus' ? i === lastChorus
-    : c.part === 'outro' ? /outro|ending/i.test(s.name) : new RegExp(c.part, 'i').test(s.name))).map(c => c.text);
+    : c.part === 'outro' ? /outro|ending/i.test(s.name) : new RegExp(c.part, 'i').test(s.name) && !(c.part === 'chorus' && lift(s)))).map(c => c.text);
   // Which parts a line of the notes is about: "Verse 1" is that verse, "Verse" every verse, "Chorus" every chorus,
   // "Chorus 2" the second one, and "Final chorus" what is added the last time round.
   const isFinal = p => /^(final|last) chorus$/.test(p.word);
@@ -140,7 +142,7 @@ function buildPlan(song, opts) {
   const chunks = sections.map((s, i) => {
     const said = notes.parts.filter(p => fits(p, s, i)).sort((a, b) => rank(a) - rank(b)).flatMap(p => p.items);
     // Songpost's own note for this kind of part stands in only when the producer's notes say nothing about it.
-    const own = (SECTION_HINTS.find(([re]) => re.test(s.name)) || [null, []])[1];
+    const own = lift(s) ? ['building, lifting towards the chorus'] : (SECTION_HINTS.find(([re]) => re.test(s.name)) || [null, []])[1];
     const local = (said.length && !/intro/i.test(s.name) ? [] : own).concat(about(s, i), said);
     // Read in order, so the more exact line has the last word: "Verse: no drums" then "Verse 2: drums enter" leaves the drums in verse 2.
     let add = [], out = [];

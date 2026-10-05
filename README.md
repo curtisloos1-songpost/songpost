@@ -13,7 +13,7 @@ page after paying.
 2. **Who it's for.** Names, how to say the name, and what the song is for: a memory, a life story, an occasion, or "a theme or feeling" (young love, growing old together), which is a song about a subject and not about the person's own story. A theme song sings the name once, as a dedication in the outro.
 3. **The story.** Four short questions that change with the kind of song. Below them, "Making this with others?" lets the customer invite sisters, brothers, friends or a team to add their own memories (see "Songs made together").
 4. **The sound.** (Since 0.8.6 this step also has "Instruments to feature", and the lyrics step shows "How it will sound", which the customer can edit. Since 0.8.7 the lyrics step also has "Part by part: the producer's notes".) Claude reads the story and suggests a tone and a style, which arrive already selected with a line saying why. Claude also suggests a tempo. The customer can change any of them (tone and style: one, or two blended; tempo: slow, medium, upbeat, or "let the song decide"), names artists whose sound they like in a boxed field under Style, and picks the song language and who sings.
-5. **Lyrics.** Claude writes them. The customer edits them and gives an email or mobile number, in a panel of its own just above the Record button.
+5. **Lyrics.** Claude writes them like a hit single in the chosen style: a short hook that is the title and is repeated in the chorus, a pre-chorus, and the story's details in the verses (since 0.8.8). The customer edits them and gives an email or mobile number, in a panel of its own just above the Record button.
 6. **Preview.** The music engine records the song. The preview opens on the part where the name is sung, when the engine reports section timing.
 7. **Pay.** Gold or Platinum, through Stripe Checkout.
 8. **Send.** A link to copy, or buttons that open a text message, WhatsApp or an email with the link ready. Or "send it for me on a date", which only appears once a message provider is connected. The same page shows when the song was first played and anything the recipient wrote back, and the opening page lists "Your songs" on the device they were made on, so the sender can always get back to it.
@@ -237,6 +237,16 @@ checking by ear. Do the first live run with Stripe in test mode.
 - ElevenLabs' terms are confirmed to cover selling songs to consumers.
 - A message provider is connected and tested.
 - `DATA_DIR` is backed up.
+
+## What changed in 0.8.8
+
+- **Lyrics written like a hit single.** Claude now starts from a hook: a short phrase of two to five words that is the title, opens or closes the chorus, and is sung at least twice in it. The chorus is kept simple and the same every time; the details of the person's story go in the verses. A two-line pre-chorus lifts into each chorus, and the outro brings the hook back.
+- **A singer cast for each song.** Claude used to be shown one example of a voice ("warm male vocals") and tended to ask for it every time. It is now asked to pick the singer for the song (range, age, texture) within the buyer's choice of a man's or a woman's voice, and not the same one each time.
+- **A closer match to a sound the buyer names.** ElevenLabs refuses any request that names an artist or a song, so Claude has always turned names into a description. It is now asked for a fuller one: the type of voice and its delivery, the drum and bass sound, the signature instruments, the production and the decade, the tempo and groove, and how those songs build. Names are still never sent, and the aim is the same lane, not an impersonation.
+- **Lines that fit one melody.** Lines are short (six to ten syllables), and each line of verse 2 matches the length of the line in the same place in verse 1. Rhymes are never forced.
+- **The song is a little longer:** nine parts where there were seven, about fifteen seconds more music a take.
+- A pre-chorus is given its own direction ("building, lifting towards the chorus") and is no longer treated as a chorus.
+- Not yet read or heard: these are new instructions to Claude and have not been run through the real Claude API from here. Read the first few lyrics it writes.
 
 ## What changed in 0.8.7
 
