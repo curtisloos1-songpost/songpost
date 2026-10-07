@@ -415,8 +415,9 @@ $("#record-btn").addEventListener("click", async () => {
     if (!ref){
       const src = readSource();
       ref = await api("/api/orders", { method: "POST", body: { brief: recordBrief(), title: draft.title, lyrics: draft.lyrics, style: draft.style, arrangement: draft.arrangement,
-        source: { from: src.from, join: src.join, ref: src.ref, heard: src.heard } } });
+        source: { from: src.from, join: src.join, ref: src.ref, heard: src.heard, again: src.again } } });
       save(ORDER_KEY, ref);
+      if (src.again) writeSource({ again: undefined }); // the next song is not from that reminder
       view = await call("/api/orders/" + ref.id);
       syncGroup(); // recording closes the invitation
     } else {
@@ -599,6 +600,7 @@ function showDone(info){
   renderExtras();
   renderHeard();
   renderAsk();
+  rmWhat = null; rmEdit = false; $("#rm-month").value = ""; $("#rm-day").value = ""; $("#rm-holidays").checked = false;
   renderRemind();
   clearInterval(heardTimer);
   heardTimer = setInterval(async () => { // look again every half minute for a first play or a reply
@@ -663,34 +665,51 @@ function renderAsk(){
   });
 }
 
-/* ---------- a reminder for next time ---------- */
+/* ---------- their next big day ---------- */
+// Asked once the song is unlocked: a day that comes round each year for this person. We email the buyer a week before,
+// with last time's song to hear again and a start on the next one. Only the month and the day are kept.
+let rmWhat = null, rmEdit = false;
+const monthDayText = md => new Date("2024-" + md + "T12:00:00").toLocaleDateString(undefined, { month: "long", day: "numeric" });
+const theirs = n => n + (/s$/i.test(n) ? "'" : "'s");
 function renderRemind(){
   const box = $("#remind-box"), mine = !!(ref && view && view.id === ref.id && view.paid);
   box.hidden = !mine || !site.scheduling;
   if (box.hidden) return;
-  const r = view.reminder;
-  $("#remind-sum").textContent = r ? "Your reminder is set" : "Want a reminder next time?";
+  const r = view.reminder, who = (view.recipient || "").trim(), set = !!r && !rmEdit;
+  $("#rm-form").hidden = set; $("#rm-saved").hidden = !set; $("#rm-err").textContent = "";
+  $("#remind-sum").textContent = set ? "We'll remind you" : who ? "When is " + theirs(who) + " next big day?" : "A day to remember?";
+  if (set){
+    const day = r.monthDay ? monthDayText(r.monthDay) : "";
+    const label = r.what === "birthday" ? (who ? theirs(who) + " birthday" : "The birthday") : r.what === "anniversary" ? "The anniversary" : "";
+    $("#rm-note").textContent = (day ? (label ? label + ", " + day + "." : day + ".") + " " : "")
+      + "An email goes to " + r.email + " a week before" + (r.holidays ? (day ? ", and before each of the four holidays." : " each of the four holidays.") : ".");
+    return;
+  }
+  if (rmWhat === null) rmWhat = r ? r.what || "" : /anniversary/i.test(view.occasion || "") ? "anniversary" : "birthday";
+  $$("#rm-what .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.what === rmWhat)));
   $("#rm-email-field").hidden = view.contactKind === "email" || !!r;
-  $("#rm-date").value = r && r.monthDay ? "2024-" + r.monthDay : ""; // only the month and day are kept
-  $("#rm-holidays").checked = !!(r && r.holidays);
-  $("#rm-save").textContent = r ? "Save changes" : "Remind me";
-  $("#rm-off").hidden = !r;
-  $("#rm-err").textContent = "";
-  $("#rm-note").textContent = r ? "We'll email " + r.email + " a week before"
-    + (r.monthDay ? " " + new Date("2024-" + r.monthDay + "T12:00:00").toLocaleDateString(undefined, { month: "long", day: "numeric" }) + " each year" : "")
-    + (r.monthDay && r.holidays ? ", and" : "") + (r.holidays ? " each of the four holidays" : "") + "." : "";
+  if (r && r.monthDay && !$("#rm-month").value){ $("#rm-month").value = r.monthDay.slice(0, 2); $("#rm-day").value = r.monthDay.slice(3); }
+  if (r) $("#rm-holidays").checked = !!r.holidays;
+  $("#rm-save").textContent = r ? "Save" : "Remind me";
 }
+$$("#rm-what .chip").forEach(c => c.addEventListener("click", () => { rmWhat = c.dataset.what; renderRemind(); }));
 $("#rm-save").addEventListener("click", async () => {
   const err = $("#rm-err"); err.textContent = "";
-  const date = $("#rm-date").value, holidays = $("#rm-holidays").checked, email = $("#rm-email").value.trim();
-  if (!date && !holidays){ err.textContent = "Pick a date, or tick the holidays, so there is something to remind you about."; return; }
+  const mo = $("#rm-month").value, dy = $("#rm-day").value, holidays = $("#rm-holidays").checked, email = $("#rm-email").value.trim();
+  if ((mo && !dy) || (!mo && dy)){ err.textContent = "Pick both the month and the day."; return; }
+  if (!mo && !holidays){ err.textContent = "Pick the month and the day."; return; }
   if (!$("#rm-email-field").hidden && contactKind(email) !== "email"){ err.textContent = "Add your email address so we know where to send the reminder."; return; }
-  try { const out = await call("/api/orders/" + ref.id + "/reminder", { method: "POST", body: { date, holidays, email } }); view.reminder = out.reminder; renderRemind(); }
-  catch (e) { err.textContent = e.message; }
+  try {
+    const out = await call("/api/orders/" + ref.id + "/reminder", { method: "POST", body: { date: mo ? mo + "-" + dy : "", holidays, email, what: rmWhat || "" } });
+    view.reminder = out.reminder; rmEdit = false; renderRemind();
+  } catch (e) { err.textContent = e.message; }
 });
+$("#rm-change").addEventListener("click", () => { rmEdit = true; rmWhat = null; $("#rm-month").value = ""; renderRemind(); });
 $("#rm-off").addEventListener("click", async () => {
-  try { await call("/api/orders/" + ref.id + "/reminder", { method: "POST", body: { off: true } }); view.reminder = null; renderRemind(); $("#rm-note").textContent = "Reminder stopped."; }
-  catch (e) { $("#rm-err").textContent = e.message; }
+  try {
+    await call("/api/orders/" + ref.id + "/reminder", { method: "POST", body: { off: true } });
+    view.reminder = null; rmEdit = false; rmWhat = null; $("#rm-month").value = ""; $("#rm-day").value = ""; $("#rm-holidays").checked = false; renderRemind();
+  } catch (e) { $("#rm-err").textContent = e.message; }
 });
 
 /* ---------- making a song together ---------- */
@@ -770,6 +789,7 @@ const ICON = {
   played: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 8.4v7.2l6-3.6z" fill="currentColor"/></svg>',
   words: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.6a7.6 7.6 0 0 1-11 6.8L4 20l1.6-4.6A7.6 7.6 0 1 1 20 11.6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
   video: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6.5" width="12" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15 10.5l5.5-3v9l-5.5-3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+  day: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 10h17M8 3.5v4M16 3.5v4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
   go: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5l6.5 6.5L9 18.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 };
 const shortDate = ms => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -816,6 +836,7 @@ function drawYours(songs){
         tapCounts(p.taps).forEach(t => bit("", t[0] + (t[1] > 1 ? " " + t[1] : ""), "emo"));
         if (p.replies) bit(ICON.words, String(p.replies));
         if (p.videos) bit(ICON.video, String(p.videos));
+        if (p.nextDay && p.nextDay.monthDay) bit(ICON.day, new Date("2024-" + p.nextDay.monthDay + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }), "quiet");
       }
       body.append(stat);
       if (p.lastReply && p.lastReply.body) body.append(el("span", "sc-said", "“" + p.lastReply.body + "”"));
@@ -1314,7 +1335,13 @@ async function init(){
   else if (clipped("join")){ writeSource({ join: clipped("join"), from: undefined, at: Date.now() }); arrived("fromjoin"); }
   if (clipped("ref")){ writeSource({ ref: clipped("ref").toLowerCase(), at: Date.now() }); arrived("ref", { code: clipped("ref").toLowerCase() }); }
   const wanted = clipped("occasion");
-  if (!oid && (q.has("from") || q.has("join") || q.has("ref") || q.has("occasion"))) history.replaceState(null, "", "/");
+  // From a reminder email (?again=): the person the earlier song was for, so this one starts with their name in.
+  let again = null;
+  if (!oid && /^\d+$/.test(clipped("again")) && clipped("t")){
+    const id = clipped("again"), t = clipped("t");
+    try { again = await api("/api/again?id=" + encodeURIComponent(id) + "&t=" + encodeURIComponent(t)); writeSource({ again: { id, t }, from: undefined, join: undefined, at: Date.now() }); } catch (e) { again = null; }
+  }
+  if (!oid && (q.has("from") || q.has("join") || q.has("ref") || q.has("occasion") || q.has("again"))) history.replaceState(null, "", "/");
   grp = load(GROUP_KEY); if (!(grp && grp.id && grp.key)) grp = null;
   let stored = load(ORDER_KEY);
   if (oid && key){ stored = { id: oid, key }; save(ORDER_KEY, stored); } // arriving from the link we sent
@@ -1340,6 +1367,11 @@ async function init(){
   }
   // An invitation whose song has already been recorded belongs to that song, not the next one.
   if (grp){ await syncGroup(); if (grpView && grpView.closed) clearGroup(); }
+  if (again && again.recipient){
+    draft = Object.assign(blank(), { sender: again.sender || draft.sender, email: draft.email, recipient: again.recipient, relationship: again.relationship || "", sayName: again.sayName || "" });
+    if (again.occasion && CHIPS.occasion.indexOf(again.occasion) >= 0) draft.occasion = again.occasion;
+    saveDraft(); syncInputs(); track("started"); return go(0);
+  }
   // Arriving from an occasion page: that occasion is chosen, and the questions open straight away.
   if (wanted){
     // One of the listed occasions, however it was typed, selects that one. Anything else is "Another occasion", filled in.

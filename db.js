@@ -67,6 +67,7 @@ addColumns('orders', ['gen_started_at INTEGER', 'language TEXT', 'say_name TEXT'
 // via + from_order: started from a gift page ("gift") or by someone who added to a group song ("join"), and which song led to it.
 // chain_depth: how many songs in a row led to this one. ref_code: the partner link the buyer arrived by. heard: their answer to
 // "How did you hear about us?".
+addColumns('orders', ['again_of TEXT']); // again_of: an earlier song for the same person, when this one was started from its reminder
 addColumns('orders', ['group_id TEXT', 'group_names TEXT', 'via TEXT', 'from_order TEXT', 'chain_depth INTEGER NOT NULL DEFAULT 0', 'ref_code TEXT', 'heard TEXT']);
 // arrangement: the producer's notes sent to the studio with the style (what changes from part to part, and what to avoid).
 addColumns('orders', ['arrangement TEXT']);
@@ -108,6 +109,8 @@ db.exec(`
     occasion TEXT, month_day TEXT, holidays INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, sent_json TEXT NOT NULL DEFAULT '[]');
 `);
 
+addColumns('reminders', ['what TEXT']); // what the saved day is: birthday | anniversary | '' (another day)
+
 // Example songs shown on the opening page. Each is either a song made on this site (order_id) or an audio file
 // the owner uploaded (file). outside marks a file that was made with a different music tool.
 db.exec(`CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, title TEXT, caption TEXT,
@@ -146,11 +149,11 @@ module.exports = {
   createOrder(o) {
     db.prepare(`INSERT INTO orders (id, key, created_at, status, price_cents, recipient, sender, relationship, occasion,
       tone, genre, voice, details, title, lyrics, style, note, attempts, ip, language, say_name, contact, gen_started_at, gen_kind, gen_event_id,
-      group_id, group_names, via, from_order, chain_depth, ref_code, heard, arrangement, answers_json)
+      group_id, group_names, via, from_order, chain_depth, ref_code, heard, arrangement, answers_json, again_of)
       VALUES (@id, @key, @created_at, @status, @price_cents, @recipient, @sender, @relationship, @occasion,
       @tone, @genre, @voice, @details, @title, @lyrics, @style, @note, @attempts, @ip, @language, @say_name, @contact, @gen_started_at, @gen_kind, @gen_event_id,
-      @group_id, @group_names, @via, @from_order, @chain_depth, @ref_code, @heard, @arrangement, @answers_json)`)
-      .run(Object.assign({ gen_kind: 'take', gen_event_id: null, group_id: null, group_names: null, via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null, arrangement: '', answers_json: '[]' }, o));
+      @group_id, @group_names, @via, @from_order, @chain_depth, @ref_code, @heard, @arrangement, @answers_json, @again_of)`)
+      .run(Object.assign({ gen_kind: 'take', gen_event_id: null, group_id: null, group_names: null, via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null, arrangement: '', answers_json: '[]', again_of: null }, o));
   },
   getOrder(id) {
     return hydrate(db.prepare('SELECT * FROM orders WHERE id = ?').get(String(id || '')));
@@ -286,18 +289,33 @@ module.exports = {
       // A changed date starts afresh: what was noted as sent (or skipped) for the old date doesn't hold the new one back.
       let sent = []; try { sent = JSON.parse(old.sent_json) || []; } catch (e) { /* start again */ }
       if (old.month_day !== r.month_day) sent = sent.filter(k => !/-day$/.test(k));
-      db.prepare('UPDATE reminders SET email = @email, month_day = @month_day, holidays = @holidays, sent_json = @sent_json, created_at = @created_at WHERE id = @id')
-        .run({ id: old.id, email: r.email, month_day: r.month_day, holidays: r.holidays, sent_json: JSON.stringify(sent), created_at: old.month_day !== r.month_day ? r.created_at : old.created_at });
+      db.prepare('UPDATE reminders SET email = @email, month_day = @month_day, holidays = @holidays, what = @what, sent_json = @sent_json, created_at = @created_at WHERE id = @id')
+        .run({ id: old.id, email: r.email, month_day: r.month_day, holidays: r.holidays, what: r.what || '', sent_json: JSON.stringify(sent), created_at: old.month_day !== r.month_day ? r.created_at : old.created_at });
       return old.id;
     }
-    return db.prepare(`INSERT INTO reminders (token, order_id, email, sender, recipient, occasion, month_day, holidays, created_at)
-      VALUES (@token, @order_id, @email, @sender, @recipient, @occasion, @month_day, @holidays, @created_at)`).run(r).lastInsertRowid;
+    return db.prepare(`INSERT INTO reminders (token, order_id, email, sender, recipient, occasion, month_day, holidays, what, created_at)
+      VALUES (@token, @order_id, @email, @sender, @recipient, @occasion, @month_day, @holidays, @what, @created_at)`).run(Object.assign({ what: '' }, r)).lastInsertRowid;
   },
   reminderFor(orderId) { return db.prepare('SELECT * FROM reminders WHERE order_id = ?').get(orderId) || null; },
   getReminder(id) { return db.prepare('SELECT * FROM reminders WHERE id = ?').get(id) || null; },
   listReminders(limit = 2000) { return db.prepare('SELECT * FROM reminders ORDER BY id DESC LIMIT ?').all(limit); },
   markReminderSent(id, keys) { db.prepare('UPDATE reminders SET sent_json = ? WHERE id = ?').run(JSON.stringify(keys.slice(-40)), id); },
   removeReminder(id) { db.prepare('DELETE FROM reminders WHERE id = ?').run(id); },
+  // Do buyers come back? Counted over unlocked songs the site recorded, by the email or number each buyer gave.
+  // buyers: how many there are. back: those with two or more songs. samePerson: those with two or more for one person.
+  // songs / dated: unlocked songs, and how many of them have a day saved to be reminded of.
+  comingBack() {
+    const sold = "paid = 1 AND removed = 0 AND COALESCE(stripe_session, '') <> 'own' AND COALESCE(contact, '') <> ''";
+    const n = sql => db.prepare(sql).get().n;
+    return {
+      buyers: n(`SELECT COUNT(DISTINCT lower(contact)) AS n FROM orders WHERE ${sold}`),
+      back: n(`SELECT COUNT(*) AS n FROM (SELECT lower(contact) FROM orders WHERE ${sold} GROUP BY lower(contact) HAVING COUNT(*) >= 2)`),
+      samePerson: n(`SELECT COUNT(DISTINCT c) AS n FROM (SELECT lower(contact) AS c FROM orders WHERE ${sold} AND trim(COALESCE(recipient, '')) <> ''
+        GROUP BY lower(contact), lower(trim(recipient)) HAVING COUNT(*) >= 2)`),
+      songs: n("SELECT COUNT(*) AS n FROM orders WHERE paid = 1 AND removed = 0 AND COALESCE(stripe_session, '') <> 'own'"),
+      dated: n(`SELECT COUNT(*) AS n FROM reminders r JOIN orders o ON o.id = r.order_id WHERE o.paid = 1 AND o.removed = 0 AND COALESCE(r.month_day, '') <> ''`),
+    };
+  },
   // Every reminder going to one address, for "stop them all".
   removeRemindersFor(email) { db.prepare('DELETE FROM reminders WHERE lower(email) = lower(?)').run(email); },
 

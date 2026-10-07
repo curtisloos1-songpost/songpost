@@ -427,29 +427,40 @@
             <div id="replies"></div>
             <p class="status-line" id="passed-note" role="status"></p>
           </div>
+          <div class="after-pay next-day" id="remind-box" hidden>
+            <h3 id="remind-sum">A day to remember?</h3>
+            <div id="rm-form">
+              <p class="status-line">We'll email you a week before, each year. Stop any time.</p>
+              <div class="chips" id="rm-what" role="group" aria-label="What the day is">
+                <button class="chip" type="button" data-what="birthday" aria-pressed="false">Birthday</button>
+                <button class="chip" type="button" data-what="anniversary" aria-pressed="false">Anniversary</button>
+                <button class="chip" type="button" data-what="" aria-pressed="false">Another day</button>
+              </div>
+              <div class="md-row">
+                <label class="field">Month<select id="rm-month"><option value="">Month</option><option value="01">January</option><option value="02">February</option><option value="03">March</option><option value="04">April</option><option value="05">May</option><option value="06">June</option><option value="07">July</option><option value="08">August</option><option value="09">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option></select></label>
+                <label class="field">Day<select id="rm-day"><option value="">Day</option><option value="01">1</option><option value="02">2</option><option value="03">3</option><option value="04">4</option><option value="05">5</option><option value="06">6</option><option value="07">7</option><option value="08">8</option><option value="09">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option><option value="24">24</option><option value="25">25</option><option value="26">26</option><option value="27">27</option><option value="28">28</option><option value="29">29</option><option value="30">30</option><option value="31">31</option></select></label>
+              </div>
+              <label class="check"><input type="checkbox" id="rm-holidays"> Also before Valentine's Day, Mother's Day, Father's Day and Christmas</label>
+              <label class="field" id="rm-email-field" hidden>Your email address
+                <input class="plain boxed" id="rm-email" type="text" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="you@example.com">
+              </label>
+              <div class="row"><button class="btn" type="button" id="rm-save">Remind me</button></div>
+            </div>
+            <div id="rm-saved" hidden>
+              <p class="rm-set" id="rm-note" role="status"></p>
+              <div class="row">
+                <button class="btn quiet" type="button" id="rm-change">Change</button>
+                <button class="btn quiet" type="button" id="rm-off">Stop</button>
+              </div>
+            </div>
+            <p class="err" role="alert" id="rm-err"></p>
+          </div>
           <div class="after-pay" id="heard-q" role="group" aria-labelledby="heard-legend" hidden>
             <p class="legend" id="heard-legend">One quick question: how did you hear about Songpost?</p>
             <div class="chips" id="heard-chips"></div>
             <p class="status-line" id="heard-thanks" role="status"></p>
           </div>
-          <details class="promise after-pay" id="remind-box" hidden>
-            <summary id="remind-sum">Want a reminder next time?</summary>
-            <p class="status-line">We email you a week ahead, once a year. Every reminder has a link to stop it.</p>
-            <label class="field">A date to remember each year
-              <span class="hint">Optional. Their birthday, your anniversary, any day that comes round again.</span>
-              <input id="rm-date" type="date">
-            </label>
-            <label class="check"><input type="checkbox" id="rm-holidays"> Also remind me before Valentine's Day, Mother's Day, Father's Day and Christmas</label>
-            <label class="field" id="rm-email-field" hidden>Your email address
-              <input class="plain boxed" id="rm-email" type="text" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="you@example.com">
-            </label>
-            <div class="row">
-              <button class="btn" type="button" id="rm-save">Remind me</button>
-              <button class="btn quiet" type="button" id="rm-off" hidden>Stop the reminder</button>
-            </div>
-            <p class="status-line" id="rm-note" role="status"></p>
-            <p class="err" role="alert" id="rm-err"></p>
-          </details>
+
           <div class="after-pay" id="plat-box" hidden>
             <p class="legend">With your Platinum record</p>
             <p class="status-line" id="sheet-lede">A lyric sheet to print and frame, in six designs. Choose one there and it is the one they see.</p>

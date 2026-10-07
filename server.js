@@ -237,8 +237,8 @@ app.post('/api/orders/peek', wrap(async (req, res) => {
   res.set('Cache-Control', 'no-store').json({ songs: asked.map(s => {
     const id = String(s && s.id || ''), key = Buffer.from(String(s && s.key || '')), o = id ? db.getOrder(id) : null, real = Buffer.from(o ? o.key : '');
     if (!o || o.removed || !key.length || key.length !== real.length || !crypto.timingSafeEqual(key, real)) return { id, gone: true };
-    const replies = o.paid ? db.repliesFor(o.id) : [], last = replies[replies.length - 1];
-    return { id, recipient: o.recipient, title: shown(o).title, tier: o.tier || 'gold', relationship: o.relationship || '', occasion: o.occasion || '',
+    const replies = o.paid ? db.repliesFor(o.id) : [], last = replies[replies.length - 1], rem = o.paid ? db.reminderFor(o.id) : null;
+    return { id, nextDay: rem && rem.month_day ? { monthDay: rem.month_day, what: rem.what || '' } : null, recipient: o.recipient, title: shown(o).title, tier: o.tier || 'gold', relationship: o.relationship || '', occasion: o.occasion || '',
       paid: !!o.paid, paidAt: o.paid_at || null, firstPlayedAt: o.first_played_at || null,
       replies: replies.length, lastReply: last ? { body: clip(last.body, 140), at: last.at } : null,
       taps: o.paid ? db.tapsFor(o.id) : [], videos: o.paid ? db.reactionsFor(o.id).length : 0 };
@@ -306,8 +306,11 @@ const HEARD = ['Someone sent me a song', 'A friend or family member', 'Facebook 
 // What the browser says about how the visitor arrived, checked against what we know. Nothing here is trusted as given.
 function sourceOf(body) {
   const s = (body && typeof body.source === 'object' && body.source) || {};
-  const out = { via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null };
+  const out = { via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null, again_of: null };
   let parent = null;
+  // Started from the reminder for an earlier song: the same buyer, coming back. It is not counted as a song that spread.
+  const rem = s.again && typeof s.again === 'object' ? db.getReminder(parseInt(s.again.id, 10)) : null;
+  if (rem && sameText(String(s.again.t || ''), rem.token)) { out.via = 'again'; out.again_of = rem.order_id || null; return Object.assign(out, { heard: HEARD.includes(clip(s.heard, 60)) ? clip(s.heard, 60) : null }); }
   if (s.from) { parent = db.getOrder(clip(s.from, 40)); if (parent && parent.paid) out.via = 'gift'; else parent = null; }
   else if (s.join) { const g = db.getGroup(clip(s.join, 40)); if (g) { out.via = 'join'; parent = g.order_id ? db.getOrder(g.order_id) : null; } }
   if (parent) { out.from_order = parent.id; out.chain_depth = (parent.chain_depth || 0) + 1; }
@@ -659,8 +662,9 @@ app.post('/api/orders/:id/heard', wrap(async (req, res) => {
 // Emails only, and only to someone who asked: a date of their own each year, and, if they tick it, the gift holidays.
 function reminderView(o) {
   const r = db.reminderFor(o.id);
-  return r ? { email: r.email, monthDay: r.month_day || '', holidays: !!r.holidays } : null;
+  return r ? { email: r.email, monthDay: r.month_day || '', holidays: !!r.holidays, what: r.what || '' } : null;
 }
+const DAY_KINDS = ['birthday', 'anniversary'];
 app.post('/api/orders/:id/reminder', wrap(async (req, res) => {
   const o = ownedOrder(req), b = req.body || {};
   if (!o.paid) throw new PublicError('Unlock the song first.');
@@ -680,8 +684,21 @@ app.post('/api/orders/:id/reminder', wrap(async (req, res) => {
   if (!monthDay && !b.holidays) throw new PublicError('Pick a date, or tick the holidays, so there is something to remind you about.');
   if (!limits.allow(req.ip, 'reminder', 20)) throw new PublicError('That is a lot of reminders. Try again later.', 429);
   db.setReminder({ token: newId(12), order_id: o.id, email, sender: o.sender, recipient: o.recipient, occasion: o.occasion,
-    month_day: monthDay, holidays: b.holidays ? 1 : 0, created_at: Date.now() });
+    month_day: monthDay, holidays: b.holidays ? 1 : 0, what: monthDay && DAY_KINDS.includes(b.what) ? b.what : '', created_at: Date.now() });
+  if (!had) db.addUsage('remind_set', 1, 0);
   res.json({ reminder: reminderView(o) });
+}));
+// The link in a reminder email: who the earlier song was for, so the next one starts with their name already in.
+// It gives out only what the buyer typed about that person, and only to someone holding the reminder's own link.
+app.get('/api/again', wrap(async (req, res) => {
+  if (!limits.allow(req.ip, 'again', 60)) throw new PublicError('Try again in a little while.', 429);
+  const r = db.getReminder(parseInt(req.query.id, 10));
+  if (!r || !sameText(String(req.query.t || ''), r.token)) throw new PublicError('That reminder has been stopped.', 404);
+  const o = r.order_id ? db.getOrder(r.order_id) : null, live = o && !o.removed ? o : null;
+  db.addUsage('remind_back', 1, 0);
+  res.set('Cache-Control', 'no-store').json({ recipient: live ? live.recipient : r.recipient || '', relationship: live ? live.relationship || '' : '',
+    sender: (live && !live.group_id ? live.sender : r.sender) || '', sayName: live ? live.say_name || '' : '',
+    occasion: r.what === 'birthday' ? 'Birthday' : r.what === 'anniversary' ? 'Anniversary' : '', lastTitle: live ? shown(live).title || '' : '' });
 }));
 
 /* ---------- the gift page ---------- */
@@ -1628,7 +1645,16 @@ app.get('/admin', (req, res) => {
   const engRows = Object.keys(eng).sort().map(n => { const e = eng[n], bad = engFail[n] ? engFail[n].n : 0, good = engOk[n] ? engOk[n].n : 0;
     return `<tr><td>${esc(ENGINE_LABELS[n] || n)}</td><td class="num">${e.made}</td><td class="num">${e.timed ? Math.round(e.secs / e.timed) + ' s' : ''}</td><td class="num">${e.stoodIn}</td>
       <td class="num">${bad}${bad + good ? ' (' + pct(bad, bad + good) + ')' : ''}</td><td>${esc(Object.keys(e.models).sort().map(m => `${String(m).replace(/^mureka-/, '')}${m === cfg.premiumModel ? ' (premium)' : ''}: ${e.models[m]} recording${e.models[m] === 1 ? '' : 's'}`).join(', '))}</td></tr>`; }).join('');
-  const insights = `<h2>Gold and Platinum</h2>
+  const cb = db.comingBack();
+  const comeBack = `<h2>Do buyers come back?</h2>
+    <div class="tiles">
+      ${tile('Songs with a next day saved', pct(cb.dated, cb.songs), `${cb.dated} of ${cb.songs} unlocked songs. The buyer is emailed a week before that day, each year`)}
+      ${tile('Buyers who made a second song', pct(cb.back, cb.buyers), `${cb.back} of ${cb.buyers} buyers, counted by the email or number they gave`)}
+      ${tile('A second song for the same person', pct(cb.samePerson, cb.buyers), `${cb.samePerson} of ${cb.buyers} buyers. The sign that a song is becoming a tradition`)}
+      ${tile('From a reminder email', `${counted('remind_back')} / ${counted('via_again_started')} / ${counted('via_again_sale')}`, 'Times a reminder link was opened, songs started from one, and songs unlocked')}
+    </div>
+    <p>Practice unlocks are included while the test checkout is on. The goal to watch: 20 to 25 of every 100 buyers making a second song for the same person within a year.</p>`;
+  const insights = comeBack + `<h2>Gold and Platinum</h2>
     <div class="tiles">
       ${tile('Platinum share', pct(mReal.plat, mReal.n), `${mReal.plat} Platinum and ${mReal.gold} Gold, of ${mReal.n} real sales`)}
       ${tile('Average sale', opt(mReal.avg, usd), 'Real sales only')}
@@ -1650,7 +1676,7 @@ app.get('/admin', (req, res) => {
     <h2>How the music engines are doing</h2>
     <div class="wrap"><table><tr><th>Engine</th><th>Recordings made</th><th>Typical time</th><th>Stood in as backup</th><th>Failed</th><th>Models used</th></tr>${engRows}</table></div>
     <p>Recordings, times and models come from the ${orders.length} most recent songs. "Models used" is what the music service itself reported for each recording. Failures, and the share of tries that failed, are counted from the day this report was added.</p>`;
-  const cameBy = o => [o.group_id ? 'made together' : '', o.via === 'gift' ? 'from a gift page' : o.via === 'join' ? 'from a group song' : '', o.ref_code ? 'partner: ' + o.ref_code : ''].filter(Boolean).join(', ');
+  const cameBy = o => [o.group_id ? 'made together' : '', o.via === 'gift' ? 'from a gift page' : o.via === 'join' ? 'from a group song' : o.via === 'again' ? 'from a reminder' : '', o.ref_code ? 'partner: ' + o.ref_code : ''].filter(Boolean).join(', ');
   const rows = orders.map(o => `<tr><td>${when(o.created_at)}</td><td>${esc(o.recipient)}</td><td>${esc(o.group_names || o.sender)}${cameBy(o) ? `<br><span class="t-note">${esc(cameBy(o))}</span>` : ''}</td><td>${esc(o.contact || '')}</td>
     <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? ' REMOVED' : ''}</td><td>${o.takes.length}${o.takes.length ? '<br><span class="t-note">' + esc(o.takes.map(t => (t.engine === 'upload' ? 'your own upload' : ENGINE_LABELS[t.engine] || t.engine || '?') + (t.model ? ' ' + String(t.model).replace(/^mureka-/, '') + (t.model === cfg.premiumModel ? ' (premium)' : '') : '')).join(', ')) + '</span>' : ''}${o.takes.some(t => t.stoodInFor) ? '<br><span class="t-note">The backup engine recorded a take, because the first could not.</span>' : ''}${o.status !== 'generating' && owedKind(o) === 'premium' ? '<br><span class="t-note"><b>The premium recording is still owed.</b> It is tried again by itself; the buyer can also press "Record it now".</span>' : ''}${o.takes.some(t => t.plain) ? '<br><span class="t-note">The studio turned down the fuller notes, so the plain ones were used.</span>' : ''}</td>
     <td>${o.paid ? esc(tierName(o.tier)) + (isOwn(o) ? ', not charged' : ' $' + (o.price_cents / 100).toFixed(2)) : ''}</td>
@@ -1861,11 +1887,20 @@ function sendReminders() {
       if (days(made, e.date) - REMIND_DAYS_AHEAD < REMIND_QUIET_DAYS) continue;
       told.add(once);
       const stop = `${cfg.baseUrl}/reminders/off?id=${r.id}&t=${r.token}`;
-      const subject = e.name ? `${e.name} is on ${nice(e.date)}` : `A reminder you asked for: ${nice(e.date)}`;
+      // Their own day leads back to the person: last time's song to hear again, and a start on the next with the name already in.
+      const o = r.order_id ? db.getOrder(r.order_id) : null, last = o && o.paid && !o.removed ? o : null, who = (r.recipient || '').trim();
+      const theirs = n => n + (/s$/i.test(n) ? "'" : "'s");
+      const day = r.what === 'birthday' ? (who ? `${theirs(who)} birthday` : 'The birthday you saved') : r.what === 'anniversary' ? 'The anniversary you saved' : '';
+      const subject = e.name ? `${e.name} is on ${nice(e.date)}` : day ? `${day} is on ${nice(e.date)}` : `A reminder you asked for: ${nice(e.date)}`;
       const lead = e.name ? `You asked Songpost to remind you before ${e.name}. This year it is on ${nice(e.date)}.`
-        : `You asked Songpost to remind you about ${nice(e.date)}, the date you saved when you made a song${r.recipient ? ' for ' + r.recipient : ''}.`;
-      notify.send(r.order_id, r.email, subject,
-        `${lead}\n\nA song takes about five minutes to make, and you hear it before you pay:\n${cfg.baseUrl}/${e.name ? '?occasion=' + encodeURIComponent(e.name) : ''}\n\nTo stop this reminder: ${stop}${cfg.mailFooter ? '\n\n' + cfg.mailFooter : ''}`, 'reminder');
+        : day ? `${day} is on ${nice(e.date)}. You asked Songpost to remind you.`
+        : `You asked Songpost to remind you about ${nice(e.date)}, the date you saved when you made a song${who ? ' for ' + who : ''}.`;
+      const again = `${cfg.baseUrl}/?again=${r.id}&t=${r.token}`;
+      const body = e.name
+        ? `A song takes about five minutes to make, and you hear it before you pay:\n${cfg.baseUrl}/?occasion=${encodeURIComponent(e.name)}`
+        : (last ? `Last time you sent ${who || 'them'} "${shown(last).title || 'a song'}". Hear it again:\n${cfg.baseUrl}/?order=${last.id}&key=${last.key}\n\n` : '')
+          + `Make this year's song${who ? ' for ' + who : ''}. ${who ? 'The name is already filled in' : 'It takes about five minutes'}, and you hear it before you pay:\n${again}`;
+      notify.send(r.order_id, r.email, subject, `${lead}\n\n${body}\n\nTo stop this reminder: ${stop}${cfg.mailFooter ? '\n\n' + cfg.mailFooter : ''}`, 'reminder');
     }
     if (sent.length !== before) db.markReminderSent(r.id, sent);
   }
