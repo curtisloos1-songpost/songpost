@@ -109,6 +109,14 @@
           <label class="field"><span id="q2-label"></span><textarea class="short" data-bind="a2" maxlength="600"></textarea></label>
           <label class="field"><span id="q3-label"></span><textarea class="short" data-bind="a3" maxlength="600"></textarea></label>
           <label class="field"><span id="q4-label"></span><textarea class="short" data-bind="a4" maxlength="600"></textarea></label>
+          <label class="field" id="mention-field">Names, places and little things to mention
+            <span class="hint">Optional. A town, a pet, a nickname, their truck: small true details are what make the song theirs.</span>
+            <input class="plain boxed" data-bind="mention" maxlength="300" autocomplete="off" spellcheck="true" placeholder="Amarillo, her dog Biscuit, the blue Ford">
+          </label>
+          <label class="field">Anything we should not mention?
+            <span class="hint">Optional. A subject, a name or a time to keep out of the song.</span>
+            <input class="plain boxed" data-bind="leaveOut" maxlength="200" autocomplete="off" spellcheck="true" placeholder="For example: her first marriage">
+          </label>
           <div class="together" id="together">
             <h3>Making this with others?</h3>
             <div id="tg-off">
@@ -135,6 +143,7 @@
             </div>
             <p class="tg-err" role="alert" id="tg-err"></p>
           </div>
+          <div class="suggest" id="story-nudge" role="status" hidden></div>
           <div class="row">
             <button class="btn primary" type="button" id="story-next">Continue</button>
             <button class="btn quiet" type="button" data-back>Back</button>
@@ -344,6 +353,7 @@
                     <button class="btn quiet small" type="button" id="photo-remove" hidden>Remove it</button>
                     <input id="photo-file" type="file" accept="image/*" hidden>
                   </div>
+                  <label class="check" id="photo-share-row" hidden><input type="checkbox" id="photo-share"> <span id="photo-share-say"></span></label>
                   <p class="status-line" id="photo-note" role="status"></p>
                   <p class="err" role="alert" id="photo-err"></p>
                 </div>

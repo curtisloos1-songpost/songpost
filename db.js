@@ -79,6 +79,13 @@ addColumns('orders', ['answers_json TEXT', 'words TEXT', 'signature TEXT', 'spok
 addColumns('events', ['order_id TEXT']);
 // featured: a reply the recipient allowed to be shared, which the owner has chosen to show on the site as a testimonial.
 addColumns('replies', ['featured INTEGER NOT NULL DEFAULT 0']);
+// A photo shown with a testimonial needs three yeses. photo_share (on the song): the buyer allows it. photo_ok (on the
+// reply): the recipient allows it. photo_featured (on the reply): the owner looked at it and chose to show it.
+addColumns('orders', ['photo_share INTEGER NOT NULL DEFAULT 0']);
+addColumns('replies', ['photo_ok INTEGER NOT NULL DEFAULT 0', 'photo_featured INTEGER NOT NULL DEFAULT 0']);
+// A video the recipient recorded for the buyer. share_ok: the recipient allows Songpost to show it to others.
+db.exec(`CREATE TABLE IF NOT EXISTS reactions (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, file TEXT, mime TEXT,
+  bytes INTEGER, seconds INTEGER, share_ok INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL)`);
 // tag: what a message is for, when something has to happen once it is delivered ("schedule").
 addColumns('outbox', ['attempts INTEGER NOT NULL DEFAULT 0', 'next_try_at INTEGER', 'failed_at INTEGER', 'tag TEXT']);
 
@@ -103,7 +110,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY AUTOINCREMEN
 
 const COLUMNS = ['status', 'error', 'paid', 'paid_at', 'price_cents', 'stripe_session', 'title', 'lyrics', 'style', 'note',
   'takes_json', 'chosen', 'attempts', 'engine', 'gen_started_at', 'tier', 'schedule_to', 'schedule_date', 'schedule_sent_at',
-  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement', 'premium', 'photo', 'words', 'signature', 'spoken'];
+  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement', 'premium', 'photo', 'words', 'signature', 'spoken', 'photo_share'];
 
 function hydrate(row) {
   if (!row) return null;
@@ -190,8 +197,9 @@ module.exports = {
     if (!o) return false;
     unlinkTakes(o.takes);
     unlinkMedia(o.photo); unlinkMedia(o.spoken);
+    for (const r of db.prepare('SELECT file FROM reactions WHERE order_id = ?').all(o.id)) unlinkMedia(r.file);
     db.transaction(() => {
-      for (const t of ['replies', 'reports', 'outbox', 'events', 'reminders', 'samples']) db.prepare(`DELETE FROM ${t} WHERE order_id = ?`).run(o.id);
+      for (const t of ['replies', 'reports', 'outbox', 'events', 'reminders', 'samples', 'reactions']) db.prepare(`DELETE FROM ${t} WHERE order_id = ?`).run(o.id);
       // what the people who made it together wrote goes too
       for (const g of db.prepare('SELECT id FROM song_groups WHERE order_id = ?').all(o.id)) {
         db.prepare('DELETE FROM group_parts WHERE group_id = ?').run(g.id);
@@ -301,18 +309,53 @@ module.exports = {
   },
   pruneEvents() { db.prepare('DELETE FROM events WHERE at < ?').run(Date.now() - 3 * 24 * 3600 * 1000); },
 
-  addReply(orderId, body, shareOk) { db.prepare('INSERT INTO replies (order_id, body, share_ok, at) VALUES (?, ?, ?, ?)').run(orderId, body, shareOk ? 1 : 0, Date.now()); },
+  addReply(orderId, body, shareOk, photoOk) {
+    db.prepare('INSERT INTO replies (order_id, body, share_ok, photo_ok, at) VALUES (?, ?, ?, ?, ?)').run(orderId, body, shareOk ? 1 : 0, shareOk && photoOk ? 1 : 0, Date.now());
+  },
   // What the recipient wrote back about one song, oldest first.
   repliesFor(orderId) { return db.prepare('SELECT body, at FROM replies WHERE order_id = ? ORDER BY at').all(orderId); },
   // Replies with the first name of the person who wrote them (the song's recipient).
   listReplies(limit = 200) {
-    return db.prepare(`SELECT r.*, o.recipient FROM replies r LEFT JOIN orders o ON o.id = r.order_id ORDER BY r.at DESC LIMIT ?`).all(limit);
+    return db.prepare(`SELECT r.*, o.recipient, o.photo AS order_photo, o.photo_share AS order_photo_share, o.removed AS order_removed
+      FROM replies r LEFT JOIN orders o ON o.id = r.order_id ORDER BY r.at DESC LIMIT ?`).all(limit);
+  },
+  // The owner chooses to show the photo with a testimonial. Only where the buyer and the recipient both said yes.
+  setReplyPhotoFeatured(id, on) {
+    db.prepare(`UPDATE replies SET photo_featured = ? WHERE id = ? AND share_ok = 1 AND photo_ok = 1
+      AND EXISTS (SELECT 1 FROM orders o WHERE o.id = replies.order_id AND o.photo IS NOT NULL AND o.photo_share = 1)`).run(on ? 1 : 0, id);
+  },
+  // The photo for one testimonial, or nothing unless every yes is still in place and the song is still up.
+  testimonialPhoto(replyId) {
+    return db.prepare(`SELECT o.photo FROM replies r JOIN orders o ON o.id = r.order_id WHERE r.id = ? AND r.featured = 1 AND r.share_ok = 1
+      AND r.photo_ok = 1 AND r.photo_featured = 1 AND o.photo_share = 1 AND o.photo IS NOT NULL AND o.removed = 0 AND o.paid = 1`).get(replyId) || null;
+  },
+  // The photo on a song changed or went, or the buyer changed their mind: what the recipient and the owner agreed to was the old one.
+  clearPhotoConsent(orderId) { db.prepare('UPDATE replies SET photo_ok = 0, photo_featured = 0 WHERE order_id = ?').run(orderId); },
+  hidePhotoTestimonials(orderId) { db.prepare('UPDATE replies SET photo_featured = 0 WHERE order_id = ?').run(orderId); },
+
+  // Reaction videos.
+  addReaction(r) {
+    return db.prepare('INSERT INTO reactions (order_id, file, mime, bytes, seconds, share_ok, at) VALUES (@order_id, @file, @mime, @bytes, @seconds, @share_ok, @at)').run(r).lastInsertRowid;
+  },
+  getReaction(id) { return db.prepare('SELECT * FROM reactions WHERE id = ?').get(id) || null; },
+  reactionsFor(orderId) { return db.prepare('SELECT * FROM reactions WHERE order_id = ? ORDER BY at').all(orderId); },
+  listReactions(limit = 200) {
+    return db.prepare(`SELECT r.*, o.recipient, o.sender, o.removed AS order_removed FROM reactions r LEFT JOIN orders o ON o.id = r.order_id ORDER BY r.at DESC LIMIT ?`).all(limit);
+  },
+  deleteReaction(id) {
+    const r = this.getReaction(id);
+    if (!r) return false;
+    unlinkMedia(r.file);
+    db.prepare('DELETE FROM reactions WHERE id = ?').run(id);
+    return true;
   },
   // Only a reply whose writer ticked "may share" can be shown on the site.
   setReplyFeatured(id, on) { db.prepare('UPDATE replies SET featured = ? WHERE id = ? AND share_ok = 1').run(on ? 1 : 0, id); },
   // The testimonials to show: featured replies whose song is still up, newest first.
   featuredReplies(limit = 3) {
-    return db.prepare(`SELECT r.body, o.recipient FROM replies r JOIN orders o ON o.id = r.order_id
+    return db.prepare(`SELECT r.id, r.body, o.recipient,
+        (r.photo_featured = 1 AND r.photo_ok = 1 AND o.photo_share = 1 AND o.photo IS NOT NULL) AS with_photo
+      FROM replies r JOIN orders o ON o.id = r.order_id
       WHERE r.featured = 1 AND r.share_ok = 1 AND o.removed = 0 ORDER BY r.at DESC LIMIT ?`).all(limit);
   },
   addReport(orderId, body) { db.prepare('INSERT INTO reports (order_id, body, at) VALUES (?, ?, ?)').run(orderId, body, Date.now()); },

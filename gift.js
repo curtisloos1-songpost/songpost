@@ -195,16 +195,21 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   const words = el("textarea"); words.maxLength = 600; words.setAttribute("aria-label", "Your message to " + g.sender);
   const share = el("label", "check"); const cb = el("input"); cb.type = "checkbox";
   share.append(cb, document.createTextNode(" Songpost may share my words and first name with others"));
+  // The sender has allowed the photo on this page to be shown with these words. It needs this person's yes too.
+  const share2 = el("label", "check"); const cb2 = el("input"); cb2.type = "checkbox"; cb2.disabled = true;
+  share2.append(cb2, document.createTextNode(" Songpost may also show the photo on this page with my words"));
+  share2.hidden = !(g.photoAsk && g.photoUrl);
+  cb.addEventListener("change", () => { cb2.disabled = !cb.checked; if (!cb.checked) cb2.checked = false; });
   const sendBtn = el("button", "btn primary", "Send to " + g.sender); sendBtn.type = "button";
   const sent = el("p", "status-line"); sent.setAttribute("role", "status");
   sendBtn.addEventListener("click", async () => {
     if (!words.value.trim()){ sent.textContent = "Write a few words first."; return; }
     sendBtn.disabled = true;
     try {
-      await api("/api/gift/" + encodeURIComponent(id) + "/reply", { method: "POST", body: { body: words.value, shareOk: cb.checked } });
+      await api("/api/gift/" + encodeURIComponent(id) + "/reply", { method: "POST", body: { body: words.value, shareOk: cb.checked, photoOk: cb.checked && cb2.checked } });
       sent.textContent = g.together ? (g.replyIsSent ? "Sent. " : "Saved. ") + "Everyone who made the song will see it."
         : g.replyIsSent ? "Sent to " + g.sender + "." : "Saved for " + g.sender + ". They'll see it on their page for this song.";
-      words.readOnly = true; share.hidden = true; rrow.hidden = true;
+      words.readOnly = true; share.hidden = true; share2.hidden = true; rrow.hidden = true;
       // The moment after saying thank you is the one time we ask: is there someone they would like to do this for?
       if (!fromSender){
         pass.textContent = "";
@@ -215,7 +220,133 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
     } catch (e) { sent.textContent = e.message; sendBtn.disabled = false; }
   });
   const rrow = el("div", "row"); rrow.append(sendBtn);
-  reply.append(words, share, rrow, sent); sheet.append(reply);
+  reply.append(words, share, share2, rrow, sent); sheet.append(reply);
+
+  /* ---------- a video back to the sender ----------
+     The person the song is for can record themselves for the sender: as they open it, or afterwards.
+     The camera is only ever turned on by their own tap. Nothing leaves this device until they press send. */
+  const canFilm = !fromSender && g.reactionsLeft > 0 && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && typeof window.MediaRecorder === "function";
+  const MAX_FILM = 90; // seconds
+  let film = null;  // while the camera is on: { stream, state: "live" | "rec" | "stopping", rec, chunks, started, timer }
+  let clip = null;  // a finished recording waiting to be sent: { blob, url, secs }
+  let armed = false; // the camera was turned on before opening, so recording starts with the seal
+  const pill = el("div", "film-pill"); pill.hidden = true;
+  const pillView = el("video"); pillView.muted = true; pillView.autoplay = true; pillView.playsInline = true; pillView.setAttribute("playsinline", ""); pillView.setAttribute("aria-label", "You, on camera");
+  const pillSay = el("span", "film-say"); pillSay.setAttribute("role", "status");
+  const pillGo = el("button", "btn small primary", "Start recording"); pillGo.type = "button";
+  const pillStop = el("button", "btn small", "Cancel"); pillStop.type = "button";
+  pill.append(pillView, pillSay, pillGo, pillStop);
+  const react = el("div", "react");
+  const reactBtn = el("button", "btn", "Record a video for " + g.sender); reactBtn.type = "button";
+  const review = el("div", "react-review"); review.hidden = true;
+  const reviewVid = el("video"); reviewVid.controls = true; reviewVid.playsInline = true; reviewVid.setAttribute("playsinline", "");
+  const shareV = el("label", "check"), cbV = el("input"); cbV.type = "checkbox";
+  shareV.append(cbV, document.createTextNode(" Songpost may show this video to others, after looking at it first"));
+  const sendV = el("button", "btn primary", "Send it to " + g.sender); sendV.type = "button";
+  const againV = el("button", "btn", "Record again"); againV.type = "button";
+  const dropV = el("button", "btn quiet", "Delete it"); dropV.type = "button";
+  const reactNote = el("p", "status-line"); reactNote.setAttribute("role", "status");
+  const vrow = el("div", "row"); vrow.append(sendV, againV, dropV);
+  review.append(reviewVid, shareV, vrow);
+  react.append(el("h3", null, "Show " + g.sender + " your reaction"),
+    el("p", "status-line", "Record a short video, up to a minute and a half. Only " + g.sender + " sees it, unless you tick the box. Nothing is sent until you press send."),
+    reactBtn, review, reactNote);
+
+  function stopCamera(){
+    if (!film) return;
+    clearInterval(film.timer); film.stream.getTracks().forEach(t => t.stop());
+    pillView.srcObject = null; pill.hidden = true; film = null; armed = false;
+    cameraOff();
+  }
+  let cameraOff = () => {}; // puts the line under the envelope back, if it was cancelled before opening
+  async function camera(){ // true once the camera is on and showing
+    if (film) return true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true });
+      film = { stream, state: "live" }; pillView.srcObject = stream; pill.hidden = false;
+      pillGo.hidden = false; pillStop.textContent = "Cancel"; pillSay.textContent = "You're on camera.";
+      return true;
+    } catch (e) { return false; }
+  }
+  function startFilm(){
+    if (!film || film.state !== "live") return;
+    // MP4 where the browser can make one (it plays everywhere), else WebM.
+    const type = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4", "video/webm;codecs=vp8,opus", "video/webm"].find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || "";
+    let rec;
+    try { rec = new MediaRecorder(film.stream, Object.assign({ videoBitsPerSecond: 900000, audioBitsPerSecond: 64000 }, type ? { mimeType: type } : {})); }
+    catch (e) { try { rec = new MediaRecorder(film.stream); } catch (x) { stopCamera(); reactNote.textContent = "This device couldn't record a video."; return; } }
+    const f = film; f.rec = rec; f.chunks = []; f.started = Date.now(); f.state = "rec";
+    rec.ondataavailable = e => { if (e.data && e.data.size) f.chunks.push(e.data); };
+    rec.onstop = () => {
+      const secs = Math.max(1, Math.round((Date.now() - f.started) / 1000));
+      const blob = new Blob(f.chunks, { type: (rec.mimeType || type || "video/webm").split(";")[0] });
+      stopCamera(); showClip(blob, secs);
+    };
+    rec.start(1000);
+    pillGo.hidden = true; pillStop.textContent = "Stop"; pillSay.textContent = "Recording 0:00";
+    f.timer = setInterval(() => {
+      const s = Math.floor((Date.now() - f.started) / 1000);
+      pillSay.textContent = "Recording " + mmss(s);
+      if (s >= MAX_FILM) stopFilm();
+    }, 500);
+  }
+  function stopFilm(){
+    if (film && film.state === "rec"){ clearInterval(film.timer); film.state = "stopping"; try { film.rec.stop(); } catch (e) { stopCamera(); } }
+    else if (film && film.state === "live") stopCamera();
+  }
+  function dropClip(){ if (clip) URL.revokeObjectURL(clip.url); clip = null; reviewVid.removeAttribute("src"); try { reviewVid.load(); } catch (e) {} review.hidden = true; }
+  function showClip(blob, secs){
+    dropClip();
+    if (!blob.size){ reactNote.textContent = "Nothing was recorded. Try again."; reactBtn.hidden = false; return; }
+    clip = { blob, url: URL.createObjectURL(blob), secs };
+    reviewVid.src = clip.url; review.hidden = false; reactBtn.hidden = true; sendV.disabled = false; cbV.checked = false;
+    reactNote.textContent = "Watch it back. It hasn't been sent.";
+    if (!inside.hidden) react.scrollIntoView({ block: "center", behavior: calm ? "auto" : "smooth" }); // they pressed stop: show them where it went
+  }
+  reviewVid.addEventListener("play", () => { if (audio) audio.pause(); }); // not both at once
+  pillGo.addEventListener("click", startFilm);
+  pillStop.addEventListener("click", stopFilm);
+  reactBtn.addEventListener("click", async () => {
+    reactNote.textContent = "";
+    if (!(await camera())) reactNote.textContent = "We couldn't use your camera. Check that this page is allowed to use the camera and microphone.";
+  });
+  againV.addEventListener("click", async () => {
+    dropClip(); reactNote.textContent = ""; reactBtn.hidden = false;
+    if (!(await camera())) reactNote.textContent = "We couldn't use your camera. Check that this page is allowed to use the camera and microphone.";
+  });
+  dropV.addEventListener("click", () => { dropClip(); reactBtn.hidden = false; reactNote.textContent = "Deleted. It was never sent."; });
+  sendV.addEventListener("click", async () => {
+    if (!clip) return;
+    if (clip.blob.size > 28 * 1024 * 1024){ reactNote.textContent = "That video is too long to send. Record a shorter one."; return; }
+    sendV.disabled = true; reactNote.textContent = "Sending. Keep this page open.";
+    try {
+      let res;
+      try { res = await fetch("/api/gift/" + encodeURIComponent(id) + "/reaction?share=" + (cbV.checked ? "1" : "0") + "&secs=" + clip.secs,
+        { method: "POST", headers: { "content-type": "application/octet-stream" }, body: clip.blob }); }
+      catch (e) { throw new Error("You seem to be offline. Check your connection and try again."); }
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Something went wrong. Try again.");
+      dropClip(); g.reactionsLeft -= 1; reactBtn.hidden = g.reactionsLeft <= 0; reactBtn.textContent = "Record another";
+      reactNote.textContent = "Sent to " + g.sender + ". They'll see it on their own page for this song.";
+    } catch (e) { reactNote.textContent = e.message; sendV.disabled = false; }
+  });
+  window.addEventListener("pagehide", stopCamera);
+  if (canFilm){
+    document.body.append(pill);
+    // Before opening: one quiet line under the envelope. Tapping it turns the camera on, and recording starts with the seal.
+    const arm = el("button", "btn quiet small arm", "Let " + g.sender + " see your reaction"); arm.type = "button";
+    const armNote = el("p", "status-line arm-note"); armNote.setAttribute("role", "status");
+    arm.addEventListener("click", async e => {
+      e.stopPropagation();
+      if (await camera()){
+        armed = true; arm.hidden = true; pillGo.hidden = true; pillSay.textContent = "Starts when you open it.";
+        armNote.textContent = "You're on camera. Break the seal when you're ready. Nothing is sent unless you choose to send it.";
+      } else armNote.textContent = "We couldn't use your camera. You can still open your song.";
+    });
+    cameraOff = () => { arm.hidden = false; armNote.textContent = ""; };
+    arrive.append(arm, armNote);
+  }
+  if (canFilm) sheet.append(react);
 
   const pass = el("p", "pass"); pass.append(document.createTextNode("Kindness travels. "));
   const more = el("a", "btn quiet", "Make a song for someone"); more.href = makeHref;
@@ -245,6 +376,7 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   function open(){
     if (opened) return; opened = true;
     audio.play().catch(() => {}); // straight away, while the tap still counts as the listener asking for sound
+    if (armed && film && film.state === "live") startFilm();
     const show = () => {
       arrive.remove(); inside.hidden = false;
       fitLabel(rec); // now it is on the page, the writing can be measured

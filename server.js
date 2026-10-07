@@ -128,6 +128,8 @@ function cleanBrief(b) {
     language: clip(b.language, 30) || 'English', sayName: clip(b.sayName, 40), inspiration: clip(b.inspiration, 120),
     tempo: clip(b.tempo, 30), instruments: label(b.instruments, 80),
     contact: clip(b.contact, 120), answers,
+    // mention: small true details to work in. avoid: what the sender asked to keep out. Used to write the lyrics, and not kept with the song.
+    mention: quotable(b.mention, 300), avoid: quotable(b.avoid, 200),
   };
   if (!brief.recipient) throw new PublicError('Add their name so the song can use it.');
   if (!brief.sender) throw new PublicError("Add your name so they know who it's from.");
@@ -219,6 +221,9 @@ function senderView(o) {
     heard: o.heard || '', reminder: o.paid ? reminderView(o) : null,
     // what comes with a Platinum record: a picture on their page, and a lyric sheet to print and frame
     photoUrl: o.paid ? photoUrl(o) : null, sheetUrl: o.paid && !o.removed && o.tier === 'platinum' ? sheetUrl(o) : null,
+    // photoShare: the sender allows the photo to be shown with a testimonial. reactions: videos the recipient recorded for them.
+    photoShare: !!o.photo_share && !!o.photo,
+    reactions: o.paid && !o.removed ? db.reactionsFor(o.id).map(r => ({ id: r.id, at: r.at, url: `/reaction/${r.id}?order=${o.id}&okey=${o.key}` })) : [],
     // the sender's own touches, on either record: what they told us (and which answers they show), their signature, their voice
     answers: o.paid ? ownAnswers(o) : [], wordsShown: wordsShown(o), signature: signatureOf(o), voiceUrl: o.paid ? voiceUrl(o) : null,
   };
@@ -676,7 +681,9 @@ app.get('/api/gift/:id', wrap(async (req, res) => {
     title: words.title, lyrics: words.lyrics, note: o.note || '', paidAt: o.paid_at, audioUrl: `/media/${o.id}?take=${o.chosen}`,
     replyIsSent: notify.live() && !!contactKind(o.contact) && canReach(o.contact), // false: a reply waits on the sender's page instead of being messaged
     fromAll: o.group_names && o.group_names !== o.sender ? o.group_names : '', together: !!o.group_id,
-    canEmail: notify.live() }; // true: we email the words when asked. false: the page opens the visitor's own mail app instead
+    canEmail: notify.live(), // true: we email the words when asked. false: the page opens the visitor's own mail app instead
+    photoAsk: o.tier === 'platinum' && !!o.photo && !!o.photo_share, // the sender allows the photo with a testimonial, so the recipient is asked too
+    reactionsLeft: Math.max(0, MAX_REACTIONS - db.reactionsFor(o.id).length) };
   if (out.tier === 'platinum') { out.photoUrl = photoUrl(o); out.sheetUrl = sheetUrl(o); }
   const answers = ownAnswers(o);
   out.words = wordsShown(o).map(i => answers[i]); out.signature = signatureOf(o); out.voiceUrl = voiceUrl(o);
@@ -698,7 +705,7 @@ app.post('/api/gift/:id/reply', wrap(async (req, res) => {
   const body = clip(req.body.body, 600);
   if (!body) throw new PublicError('Write a few words first.');
   if (!limits.allow(req.ip, 'reply', 10)) throw new PublicError('That is a lot of messages. Try again later.', 429);
-  db.addReply(o.id, body, !!req.body.shareOk);
+  db.addReply(o.id, body, !!req.body.shareOk, !!req.body.photoOk && o.tier === 'platinum' && !!o.photo && !!o.photo_share);
   notify.send(o.id, o.contact, `${o.recipient} wrote back about your song`, `${o.recipient} says:\n\n${body}`);
   res.json({ ok: true });
 }));
@@ -733,6 +740,57 @@ app.post('/api/gift/:id/emailed', wrap(async (req, res) => {
   if (limits.allow(req.ip, 'giftmail-own', 20)) { try { db.addUsage('gift_email', 1, 0); } catch (e) { /* not counted */ } }
   res.json({ ok: true });
 }));
+// A reaction video: the recipient records themselves, on their own page, for the person who sent the song.
+// Nothing is uploaded until they press send. It goes to the sender's own page for this song and nowhere else.
+// With the box ticked, Songpost may show it to others, and only the owner does that, by hand, after watching it.
+const MAX_REACTIONS = 3; // per song
+function videoKind(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 2000) return null;
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return { ext: 'webm', mime: 'video/webm' };
+  if (buf.toString('latin1', 4, 8) === 'ftyp') return { ext: 'mp4', mime: 'video/mp4' };
+  return null;
+}
+// Checked before the file is read in: the song is real, there is room for another video, and this visitor isn't sending a pile.
+const reactionFirst = (req, res, next) => {
+  try {
+    const o = liveGift(req.params.id);
+    if (db.reactionsFor(o.id).length >= MAX_REACTIONS) throw new PublicError(`${o.sender} already has ${MAX_REACTIONS} videos for this song.`, 409);
+    if (!limits.allow(req.ip, 'reaction', 6)) throw new PublicError('That is a lot of videos. Try again later.', 429);
+    next();
+  } catch (e) { next(e); }
+};
+app.post('/api/gift/:id/reaction', reactionFirst, express.raw({ type: ['video/webm', 'video/mp4', 'application/octet-stream'], limit: '30mb' }), wrap(async (req, res) => {
+  const o = liveGift(req.params.id);
+  const kind = videoKind(req.body);
+  if (!kind) throw new PublicError("That video couldn't be read. Record it again.");
+  if (db.reactionsFor(o.id).length >= MAX_REACTIONS) throw new PublicError(`${o.sender} already has ${MAX_REACTIONS} videos for this song.`, 409);
+  const secs = Number(req.query.secs), file = `${o.id}-r${Date.now().toString(36)}${newId(2)}.${kind.ext}`;
+  fs.writeFileSync(path.join(db.mediaDir, file), req.body);
+  db.addReaction({ order_id: o.id, file, mime: kind.mime, bytes: req.body.length, seconds: secs > 0 && secs < 600 ? Math.round(secs) : null,
+    share_ok: req.query.share === '1' ? 1 : 0, at: Date.now() });
+  try { db.addUsage('gift_reaction', 1, 0); } catch (e) { /* not counted */ }
+  notify.send(o.id, o.contact, `${o.recipient} sent you a video about your song`,
+    `${o.recipient} recorded a video for you after hearing the song. Watch it on your page for this song:\n${cfg.baseUrl}/?order=${o.id}&key=${o.key}`);
+  res.json({ ok: true });
+}));
+// Watching one. Only the sender (with the song's key) and the owner (with the admin key) can.
+app.get('/reaction/:rid', (req, res) => {
+  const r = db.getReaction(parseInt(req.params.rid, 10)), o = r && db.getOrder(r.order_id);
+  if (!r || !o) return res.status(404).end();
+  const asOwner = req.query.key != null && adminOk(req);
+  const given = Buffer.from(String(req.query.okey || '')), real = Buffer.from(o.key || '');
+  const asSender = !asOwner && String(req.query.order || '') === o.id && given.length === real.length && given.length > 0 && crypto.timingSafeEqual(given, real);
+  if (!asOwner && !(asSender && !o.removed)) return res.status(404).end();
+  // The owner may save one to post elsewhere, only where the person in it said it may be shared.
+  if (req.query.download && asOwner && r.share_ok) res.attachment(`songpost-reaction-${r.id}.${r.file.split('.').pop()}`);
+  res.type(r.mime || 'video/webm').set('Cache-Control', 'private, no-store').sendFile(path.basename(r.file), { root: db.mediaDir });
+});
+// The photo beside a testimonial on the site. Named by the reply, never by the song, so the address gives away nothing about the gift page.
+app.get('/testimonial-photo/:rid', (req, res) => {
+  const t = db.testimonialPhoto(parseInt(req.params.rid, 10));
+  if (!t) return res.status(404).end();
+  res.type('image/jpeg').set('Cache-Control', 'public, max-age=300').sendFile(path.basename(t.photo), { root: db.mediaDir });
+});
 app.post('/api/gift/:id/report', wrap(async (req, res) => {
   const o = liveGift(req.params.id);
   const body = clip(req.body.body, 600);
@@ -778,13 +836,24 @@ app.post('/api/orders/:id/photo', ownerFirst, express.raw({ type: 'image/jpeg', 
   const now = db.getOrder(o.id); check(now); // the check takes a moment
   const file = `${o.id}-p${Date.now().toString(36)}${newId(2)}.jpg`;
   fs.writeFileSync(path.join(db.mediaDir, file), pic.data);
-  db.updateOrder(o.id, { photo: file });
+  db.updateOrder(o.id, { photo: file, photo_share: 0 }); // a new picture is asked about afresh
+  db.clearPhotoConsent(o.id);
   if (now.photo !== file) db.unlinkMedia(now.photo);
   res.json(senderView(db.getOrder(o.id)));
 }));
 app.delete('/api/orders/:id/photo', wrap(async (req, res) => {
   const o = ownedOrder(req);
-  if (o.photo) { db.updateOrder(o.id, { photo: null }); db.unlinkMedia(o.photo); }
+  if (o.photo) { db.updateOrder(o.id, { photo: null, photo_share: 0 }); db.clearPhotoConsent(o.id); db.unlinkMedia(o.photo); }
+  res.json(senderView(db.getOrder(o.id)));
+}));
+// The sender allows, or stops allowing, the photo to be shown with what the recipient writes back.
+app.post('/api/orders/:id/photo-share', wrap(async (req, res) => {
+  const o = ownedOrder(req);
+  if (o.removed) throw new PublicError('This song has been removed.', 404);
+  if (!o.paid || o.tier !== 'platinum' || !o.photo) throw new PublicError('Add a photo first.');
+  const ok = !!req.body.ok;
+  db.updateOrder(o.id, { photo_share: ok ? 1 : 0 });
+  if (!ok) db.hidePhotoTestimonials(o.id); // taken off the site at once
   res.json(senderView(db.getOrder(o.id)));
 }));
 /* ---------- the sender's own touches, on either record ---------- */
@@ -913,7 +982,7 @@ app.get('/sample/:id', (req, res) => {
 app.get('/testimonials.json', (req, res) => {
   let typed = [];
   try { typed = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'testimonials.json'), 'utf8')); } catch (e) { /* none */ }
-  const chosen = db.featuredReplies(3).map(r => ({ quote: r.body, name: `${r.recipient}, who was given a song` }));
+  const chosen = db.featuredReplies(3).map(r => Object.assign({ quote: r.body, name: `${r.recipient}, who was given a song` }, r.with_photo ? { photo: `/testimonial-photo/${r.id}` } : {}));
   res.set('Cache-Control', 'no-store').json((Array.isArray(typed) ? typed : []).concat(chosen).slice(0, 3));
 });
 
@@ -1151,6 +1220,18 @@ app.post('/admin/feature', (req, res) => {
   db.setReplyFeatured(parseInt(req.body.id, 10), !req.body.off);
   res.redirect('/admin?key=' + encodeURIComponent(cfg.adminKey));
 });
+// Shows the photo beside a testimonial, or takes it off. Only where the buyer and the recipient both allowed it.
+app.post('/admin/feature-photo', (req, res) => {
+  if (!adminOk(req)) return res.status(404).end();
+  db.setReplyPhotoFeatured(parseInt(req.body.id, 10), !req.body.off);
+  res.redirect('/admin?key=' + encodeURIComponent(cfg.adminKey) + '#replies');
+});
+// Deletes a reaction video for good.
+app.post('/admin/reaction-delete', (req, res) => {
+  if (!adminOk(req)) return res.status(404).end();
+  db.deleteReaction(parseInt(req.body.id, 10));
+  res.redirect('/admin?key=' + encodeURIComponent(cfg.adminKey) + '#reactions');
+});
 // Which music engine records the songs, and which Mureka model. The other engine stays ready as the backup.
 app.post('/admin/engine', (req, res) => {
   if (!adminOk(req)) return res.status(404).end();
@@ -1354,6 +1435,7 @@ app.get('/admin', (req, res) => {
       ${tile('Recipients who wrote back', pct(repliedTo, sent.length), `${repliedTo} of ${sent.length} songs had a reply`)}
       ${tile('Listens and saves', `${counted('gift_play')} / ${counted('gift_save')}`, 'Times a gift page played the song, and times the song was saved')}
       ${tile('Words emailed', String(counted('gift_email')), 'Times someone emailed a song\'s words to themselves')}
+      ${tile('Reaction videos', String(counted('gift_reaction')), 'Videos recipients recorded for the person who sent the song')}
     </div>
     <p>Worked out from the ${orders.length} most recent songs, practice unlocks included. A play is counted when someone presses play on the gift page. The sender looking at their own gift, from the device they made it on, is not counted. Listens and saves are counted from the day this report was added.</p>
     <h2>How the music engines are doing</h2>
@@ -1367,8 +1449,24 @@ app.get('/admin', (req, res) => {
     <td>${o.paid ? `<a href="/g/${esc(o.id)}">page</a>` : ''}</td>
     <td>${o.paid ? `<form method="post" action="/admin/remove"><input type="hidden" name="key" value="${key}"><input type="hidden" name="id" value="${esc(o.id)}">${o.removed ? '<input type="hidden" name="restore" value="1"><button>Restore</button>' : '<button>Remove</button>'}</form>` : ''}</td>
     <td><form method="post" action="/admin/delete" onsubmit="return confirm('Delete this song for good? Its audio and details cannot be brought back.')"><input type="hidden" name="key" value="${key}"><input type="hidden" name="id" value="${esc(o.id)}"><button>Delete</button></form></td></tr>`).join('');
+  // The photo column: shown to the owner to review only when the buyer and the recipient have both agreed.
+  const photoCell = r => {
+    const both = r.share_ok && r.photo_ok && r.order_photo && r.order_photo_share && !r.order_removed;
+    if (!both) return r.order_photo && r.order_photo_share && r.share_ok ? 'The buyer agreed. The recipient did not tick the photo box.' : '';
+    return `<img src="/photo/${esc(r.order_id)}" alt="The photo on this song's page" style="display:block;max-width:120px;max-height:120px;margin-bottom:6px">Both agreed.
+      <form method="post" action="/admin/feature-photo"><input type="hidden" name="key" value="${key}"><input type="hidden" name="id" value="${r.id}">${r.photo_featured ? '<input type="hidden" name="off" value="1"><b>Photo is with it.</b> <button>Take the photo off</button>' : '<button>Show the photo with it</button>'}</form>${r.photo_featured && !r.featured ? '<span class="t-note">It shows once the words are on the site.</span>' : ''}`;
+  };
   const replies = db.listReplies().map(r => `<tr><td>${when(r.at)}</td><td>${esc(r.recipient || '')}</td><td>${esc(r.body)}</td><td>${r.share_ok ? 'May be shared' : 'Private'}</td>
-    <td>${r.share_ok ? `<form method="post" action="/admin/feature"><input type="hidden" name="key" value="${key}"><input type="hidden" name="id" value="${r.id}">${r.featured ? '<input type="hidden" name="off" value="1"><b>On the site.</b> <button>Take off the site</button>' : '<button>Show on the site</button>'}</form>` : ''}</td></tr>`).join('');
+    <td>${r.share_ok ? `<form method="post" action="/admin/feature"><input type="hidden" name="key" value="${key}"><input type="hidden" name="id" value="${r.id}">${r.featured ? '<input type="hidden" name="off" value="1"><b>On the site.</b> <button>Take off the site</button>' : '<button>Show on the site</button>'}</form>` : ''}</td>
+    <td>${photoCell(r)}</td></tr>`).join('');
+  const reactionRows = db.listReactions().map(r => `<tr><td>${when(r.at)}</td><td>${esc(r.recipient || '')}, for ${esc(r.sender || '')}${r.order_removed ? '<br><b>Song removed</b>' : ''}</td>
+    <td><video controls preload="none" playsinline src="/reaction/${r.id}?key=${key}" style="display:block;width:220px;max-height:220px;background:#000"></video></td>
+    <td>${r.seconds ? r.seconds + ' s, ' : ''}${(r.bytes / 1048576).toFixed(1)} MB</td>
+    <td>${r.share_ok ? `<b>May be shared.</b> Watch it first, then post it yourself.<br><a href="/reaction/${r.id}?key=${key}&amp;download=1">Save the video</a>` : 'Private: for the buyer only. Do not share it.'}</td>
+    <td><form method="post" action="/admin/reaction-delete"><input type="hidden" name="key" value="${key}"><input type="hidden" name="id" value="${r.id}"><button>Delete</button></form></td></tr>`).join('');
+  const reactions = `<h2 id="reactions">Reaction videos</h2>
+    <p>Videos recipients recorded for the person who sent them a song. Each one goes to that buyer's own page. A video marked "May be shared" is one the person in it allowed Songpost to show others: nothing is posted for you, so watch it, save it, and post it where you choose. A private one is for the buyer only.</p>
+    <div class="wrap"><table><tr><th>When (UTC)</th><th>From</th><th>Video</th><th>Length</th><th>Sharing</th><th></th></tr>${reactionRows}</table></div>`;
   const samples = db.listSamples(), sampleOrders = new Set(samples.map(s => s.order_id).filter(Boolean));
   const sampleRows = samples.map(s => { const src = sampleSource(s);
     return `<tr><td>${esc((src && src.title) || s.title || '')}</td><td>${esc(s.caption || '')}</td><td>${s.order_id ? 'Made on Songpost' : s.outside ? 'Uploaded: made with another tool' : 'Uploaded: made on Songpost'}${src ? `<br><span class="t-note">The page says: ${esc(src.note)}</span>` : ''}${src ? '' : '<br><b>Not showing: its song was removed.</b>'}</td>
@@ -1474,7 +1572,8 @@ app.get('/admin', (req, res) => {
     ${examples}
     <h2>Songs</h2><p>The ${orders.length} most recent. Remove takes a paid song's page down and can be undone. Delete erases a song and everything about it.</p><div class="wrap"><table><tr><th>When (UTC)</th><th>For</th><th>From</th><th>Contact</th><th>Status</th><th>Takes</th><th>Paid</th><th>Send date</th><th></th><th></th><th></th></tr>${rows}</table></div>
     <h2>Reports</h2><div class="wrap"><table><tr><th>When</th><th>Song</th><th>What they said</th></tr>${reports}</table></div>
-    <h2>Replies from recipients</h2><p>These are your testimonials. A reply marked "May be shared" can be shown on the site with one click: it appears beside the pay button, and the newest one on the opening page, signed with the person's first name. Up to three show at once. Private replies can never be shown.</p><div class="wrap"><table><tr><th>When</th><th>From</th><th>Words</th><th>Sharing</th><th>Testimonial</th></tr>${replies}</table></div>
+    <h2 id="replies">Replies from recipients</h2><p>These are your testimonials. A reply marked "May be shared" can be shown on the site with one click: it appears beside the pay button, and the newest one on the opening page, signed with the person's first name. Up to three show at once. Private replies can never be shown. A photo appears in the last column only when the buyer and the recipient have both allowed it; it is shown on the site only if you choose to, after looking at it.</p><div class="wrap"><table><tr><th>When</th><th>From</th><th>Words</th><th>Sharing</th><th>Testimonial</th><th>Photo</th></tr>${replies}</table></div>
+    ${reactions}
     <h2>Messages</h2><div class="wrap"><table><tr><th>When</th><th>To</th><th>Subject</th><th>Body</th><th>Status</th></tr>${outbox}</table></div>`);
 });
 
@@ -1483,7 +1582,7 @@ app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] })
 /* ---------- errors ---------- */
 app.use((err, req, res, next) => {
   if (err instanceof PublicError) return res.status(err.status).json({ error: err.publicMessage });
-  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: /\/photo$/.test(req.path) ? 'That picture is too large. Choose a smaller one.' : /\/voice$/.test(req.path) ? 'That recording is too large. Record it again.' : /^\/admin\//.test(req.path) ? 'That file is too large. Use the MP3.' : 'That is too much text. Shorten it and try again.' });
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: /\/photo$/.test(req.path) ? 'That picture is too large. Choose a smaller one.' : /\/voice$/.test(req.path) ? 'That recording is too large. Record it again.' : /\/reaction$/.test(req.path) ? 'That video is too long to send. Record a shorter one.' : /^\/admin\//.test(req.path) ? 'That file is too large. Use the MP3.' : 'That is too much text. Shorten it and try again.' });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong on our side. Try again.' });
 });

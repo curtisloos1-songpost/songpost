@@ -28,25 +28,114 @@ async function api(path, opts){
   return json;
 }
 
-// Four short questions take the place of one blank box. A memory or a life story asks different ones.
+// Four short questions take the place of one blank box. They change with what the song is for: a memory, a life
+// story, a couple, a newborn and a working life each ask for different things.
+const STORY_QUESTIONS = [
+    ["How did it begin?", "She raised three of us mostly on her own"],
+    ["A moment along the way", "She ran behind my bike the whole way across the lot"],
+    ["Where are things now?", "I have kids of my own and finally understand"],
+    ["How do they make you feel?", "Like I could do anything"]];
+const WORK_QUESTIONS = [
+    ["What are they like to work with?", "She knows everyone's kids by name and never raises her voice"],
+    ["A moment that shows how they work", "She stayed until midnight so the rest of us could go home"],
+    ["Something they always say or do", "\"Let's find out\" whenever something breaks"],
+    ["What do you want them to know?", "That the place runs on her, and we see it"]];
 const QUESTIONS = {
   "A favorite memory": ["What's the memory?", [
     ["Where were you, and when?", "Grandma's porch, the summer I turned ten"],
     ["What happened?", "She taught me to play dominoes and let me win"],
     ["A detail you can still picture", "The sound of the tiles on the metal table"],
     ["Why does it stay with you?", "It was the first time I felt grown up"]]],
-  "Our story": ["What's your story?", [
-    ["How did it begin?", "She raised three of us mostly on her own"],
-    ["A moment along the way", "She ran behind my bike the whole way across the lot"],
-    ["Where are things now?", "I have kids of my own and finally understand"],
-    ["How do they make you feel?", "Like I could do anything"]]],
+  "Our story": ["What's your story?", STORY_QUESTIONS],
+  "Anniversary": ["What's your story?", [
+    ["How did it begin?", "A blind date at a diner off the highway"],
+    ["A moment along the way", "The winter the pipes froze and we slept by the stove"],
+    ["Where are things now?", "Two kids, one dog, and the same Sunday coffee"],
+    ["How do they make you feel?", "Like I am home wherever they are"]]],
+  "Wedding": ["What should the song say?", [
+    ["How did the two of them meet?", "At a friend's cookout. He burned the burgers and she stayed anyway"],
+    ["When did you know they were right for each other?", "The day he drove four hours to change her flat tire"],
+    ["Something about the two of them together", "They finish each other's sentences and argue over the map"],
+    ["What do you wish for them?", "A long life of ordinary Tuesdays together"]]],
+  "New baby": ["What should the song say?", [
+    ["Who is the baby, and who are the parents?", "Nora, born to Kate and Ben in March"],
+    ["What was the waiting, or the day they arrived, like?", "Two weeks late, in the middle of a thunderstorm"],
+    ["What do you already love or notice about them?", "She has her grandfather's frown and holds on tight"],
+    ["What do you hope for them?", "That she always knows how wanted she was"]]],
+  "Graduation": ["What should the song say?", [
+    ["What did they achieve, and what did it take?", "A nursing degree, working nights the whole way through"],
+    ["A moment that shows who they are", "She studied in the car while her little brother had practice"],
+    ["Something they always say or do", "\"One more page\""],
+    ["What comes next, and what do you want them to know?", "The night shift at St. Mary's. We never doubted her"]]],
+  "Retirement": ["What should the song say?", [
+    ["What did they do, and for how long?", "Thirty-one years teaching fourth grade at the same school"],
+    ["A moment that shows how they worked", "She stayed late every Thursday so one boy could learn to read"],
+    ["Something they always say or do", "\"Sharpen your pencil and try again\""],
+    ["What comes next, and what do you want them to know?", "A garden and a camper van. We were lucky to have her"]]],
+  "Mother's Day": ["What should the song say?", [
+    ["A memory of her from when you were small", "She sang along to the radio while she braided my hair"],
+    ["Something she always says or does", "\"Call me when you get there\""],
+    ["What do you understand now that you didn't then?", "How tired she must have been, and never showed it"],
+    ["What do you want her to know?", "That everything good in me started with her"]]],
+  "Father's Day": ["What should the song say?", [
+    ["Something he taught you", "How to back a trailer down a boat ramp"],
+    ["Something he always says or does", "He checks the oil before anyone leaves the driveway"],
+    ["A time he showed up when it counted", "He drove all night to get me home from college"],
+    ["What do you want him to know?", "That I still hear his voice when I don't know what to do"]]],
+  "Valentine's Day": ["What should the song say?", [
+    ["How did you meet?", "She spilled coffee on my notes in the library"],
+    ["The small thing they do that you love", "He warms up my side of the car first"],
+    ["A moment that was just the two of you", "Dancing in the kitchen at midnight with no music on"],
+    ["What do you want them to know?", "I would choose you again, every time"]]],
+  "Christmas": ["What should the song say?", [
+    ["A Christmas you spent together", "The year the power went out and we cooked on the fireplace"],
+    ["What do they do that shows who they are?", "She wraps a present for the mail carrier every year"],
+    ["Something they always say or do", "He reads the same story out loud on Christmas Eve"],
+    ["What do you wish for them in the year ahead?", "A slower year, and more time on the porch"]]],
+  "Proposal": ["What should the song say?", [
+    ["How did you meet?", "At a friend's wedding, both of us at the wrong table"],
+    ["When did you know?", "The night she laughed so hard she had to pull the car over"],
+    ["What is life with them like?", "Quiet mornings, loud dinners, and the dog between us"],
+    ["How do you want to ask?", "Simply: will you marry me, with her full name"]]],
+  "Congratulations": ["What should the song say?", [
+    ["What did they achieve?", "She opened her own bakery on Main Street"],
+    ["What did it take to get there?", "Six years of four a.m. shifts and a second job"],
+    ["A moment that shows who they are", "She gave away the first loaf to the man who fixed the oven"],
+    ["What do you want them to know?", "Nobody is surprised but her"]]],
+  "Good luck": ["What should the song say?", [
+    ["What are they about to do?", "Leave for basic training on Monday"],
+    ["Why do you believe in them?", "He has never once quit something he started"],
+    ["Something they always say or do", "\"One more rep\""],
+    ["What should they remember when it gets hard?", "That home is right here, and we are proud already"]]],
+  "An apology": ["What do you want to say?", [
+    ["What happened, in your own words?", "I missed her recital for a meeting I could have moved"],
+    ["What do you wish you had done?", "Been in the second row with my phone turned off"],
+    ["What do they mean to you?", "She is the reason I work at all"],
+    ["What do you want them to know?", "I am sorry, and I will be there next time"]]],
+  "A song in their memory": ["Who are we remembering?", [
+    ["Their name, and who they were to you", "My grandfather, Walt"],
+    ["A memory that brings them back", "Shelling peas on his porch while the ballgame played on the radio"],
+    ["Something they always said or did", "\"Leave it better than you found it\""],
+    ["What would you say to them now?", "I kept the garden going"]]],
+  "A song about a pet": ["Who is the pet?", [
+    ["Their name, and what kind of animal they are", "Biscuit, a beagle with one white ear"],
+    ["What do they do that no other pet does?", "She howls along with the fire truck every single time"],
+    ["A moment with them you'll never forget", "She waited by the door the whole week I was in the hospital"],
+    ["What do they mean to the person this is for?", "She is the first one he tells about his day"]]],
+  "A prayer or blessing": ["What is the prayer for?", [
+    ["What are you asking for, for them?", "Strength and peace through her treatment"],
+    ["What is happening in their life right now?", "She starts a new job in a new city next month"],
+    ["A saying or belief that matters to them", "\"This too shall pass\""],
+    ["What do you want them to feel?", "That they are held, and not alone"]]],
+  "Work anniversary": ["What should the song say?", WORK_QUESTIONS],
+  "Boss's Day": ["What should the song say?", WORK_QUESTIONS],
   "A theme or feeling": ["What's the song about?", [
     ["The theme, in a few words", "Young love. Growing old together. Coming home."],
     ["What should it make them feel?", "Like they're seventeen again"],
     ["Pictures or moments to put in it", "A gravel road, a porch light, a first slow dance"],
     ["Why this theme, for this person?", "It's how the two of us started"]]],
   "": ["What should the song say?", [
-    ["What do you love most about them?", "He shows up for everyone, every time"],
+    ["What do they do that shows who they are?", "He shows up for everyone, every time"],
     ["A moment with them you'll never forget", "The road trip when the truck broke down"],
     ["Something they always say or do", "He ends every call with \"be good\""],
     ["What do you want them to know?", "That I noticed all of it"]]]
@@ -114,8 +203,8 @@ function recordSVG(o){
   const n = ++recN, to = str(o.recipient).trim(), from = str(o.sender).trim();
   const occ = str(o.occasion || "custom");
   // Until the song has a title: "A birthday song", "An anniversary song". A named day keeps its capitals: "A National Histology Day song".
-  const said = /\s[A-Z]/.test(occ) ? occ : occ.toLowerCase();
-  const title = str(o.title).trim() || (/^(a |our )/i.test(occ) ? occ : (/^[aeiou]/i.test(said) ? "An " : "A ") + said + " song");
+  const said = /\s[A-Z]/.test(occ) || /^(Christmas|Easter|Hanukkah)$/.test(occ) ? occ : occ.toLowerCase();
+  const title = str(o.title).trim() || (/^(a |an |our )/i.test(occ) ? occ : (/^[aeiou]/i.test(said) ? "An " : "A ") + said + " song");
   const shown = to || "their name"; // a blank to fill in, shown until a visitor types the name
   const size = o.nameSize || Math.max(20, Math.min(50, Math.round(380 / Math.max(shown.length, 7))));
   const lines = wrapTitle(title), ys = lines.length > 1 ? [243, 261] : [250];

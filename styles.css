@@ -70,7 +70,11 @@ button,input,textarea{font:inherit;color:inherit}
 :root[data-look="around"] .hole-heart{display:none}
 /* while a song plays: the well beats, and the engraved lines travel outward */
 .rec-stage:has(.record.spinning) .hb{animation:beat 1.4s ease-in-out infinite}
-.rec-stage:has(.record.spinning) .hl{animation:spread 1.8s linear infinite}
+.rec-stage:has(.record.spinning) .hl{animation:spread 1.4s linear infinite,ripple 1.4s ease-out infinite;animation-delay:0s,calc(var(--n,0)*.1s)}
+/* each line lights up a moment after the one inside it, so a bright ripple runs outward on every beat */
+.hl:nth-child(2){--n:1}.hl:nth-child(3){--n:2}.hl:nth-child(4){--n:3}.hl:nth-child(5){--n:4}.hl:nth-child(6){--n:5}
+.hl:nth-child(7){--n:6}.hl:nth-child(8){--n:7}.hl:nth-child(9){--n:8}.hl:nth-child(10){--n:9}.hl:nth-child(11){--n:10}
+@keyframes ripple{0%{stroke:var(--foil);stroke-width:2.4}50%,100%{stroke:var(--engrave);stroke-width:1}}
 .rec-stage:has(.record.spinning) .rings .hb{animation:none}
 @keyframes beat{0%,30%,100%{transform:scale(1)}10%{transform:scale(1.03)}20%{transform:scale(1.008)}}
 @keyframes spread{to{transform:scale(calc(var(--k)*1.15));opacity:var(--o2)}}
@@ -386,6 +390,25 @@ legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;padding:0;margin-bo
 .reply h3{font-family:var(--serif);font-weight:500;font-size:1.6rem;line-height:1.1;margin:0 0 12px}
 .reply textarea{display:block;width:100%;min-height:90px;padding:10px 12px;border:1px solid var(--rule);border-radius:3px;background:transparent;font-family:var(--serif);font-size:1.25rem;font-weight:500;line-height:1.4;resize:vertical}
 .reply textarea:focus-visible{outline:1px solid var(--focus);outline-offset:0;border-color:var(--focus)}
+/* a video back to the sender: the small camera view that stays in the corner, and the place it is watched back */
+.film-pill{position:fixed;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:30;display:flex;align-items:center;gap:10px;max-width:calc(100vw - 24px);
+  padding:7px 12px 7px 7px;border-radius:999px;background:var(--paper);color:var(--ink);border:1px solid var(--rule);box-shadow:0 14px 30px -12px var(--shadow)}
+.film-pill[hidden]{display:none}
+.film-pill video{width:56px;height:56px;border-radius:50%;object-fit:cover;background:#000;transform:scaleX(-1);flex:none}
+.film-say{font-size:.86rem;font-variant-numeric:tabular-nums}
+.arm{margin-top:14px;color:var(--on-field)}
+.arm-note{max-width:26em;text-align:center;color:var(--on-field-soft)}
+.react{margin-top:30px;padding-top:22px;border-top:1px solid var(--rule)}
+.react h3{font-family:var(--serif);font-weight:500;font-size:1.6rem;line-height:1.1;margin:0 0 8px}
+.react > .status-line{margin:0 0 12px}
+.react-review{margin-top:4px}
+.react-review[hidden]{display:none}
+.react-review video,.reply-vid{display:block;width:100%;max-width:360px;max-height:70vh;border-radius:4px;background:#000;margin:0 0 6px}
+.reply-vid{margin-top:10px}
+/* a testimonial shown with its photo */
+.voice.has-pic{display:grid;grid-template-columns:64px 1fr;gap:4px 14px;align-items:center}
+.voice.has-pic .voice-pic{grid-row:1 / span 2;width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid var(--rule)}
+.founder .voice-pic{display:block;width:84px;height:84px;border-radius:50%;object-fit:cover;margin:0 auto 14px;border:2px solid var(--foil)}
 .check{display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--muted);margin:12px 0 6px}
 .check input{width:18px;height:18px;accent-color:var(--accent)}
 .pass{margin:30px 0 0;padding-top:18px;border-top:1px solid var(--rule);font-family:var(--serif);font-style:italic;font-size:1.3rem;text-align:center}
@@ -432,7 +455,7 @@ a.btn{text-decoration:none}
 /* Platinum: the lyric sheet prints cleanly on paper */
 @media print{
   body{background:#fff;color:#000}
-  .top,.foot,.gift-bar,.rec-stage,.open-row,.player,.keep,.reply,.pass,.report,.takes,.plate,.for,.by,.from-all,.preview-note,.g-photo,.g-words,.voice-again,.gift h1{display:none !important}
+  .top,.foot,.gift-bar,.rec-stage,.open-row,.player,.keep,.reply,.react,.film-pill,.pass,.report,.takes,.plate,.for,.by,.from-all,.preview-note,.g-photo,.g-words,.voice-again,.gift h1{display:none !important}
   .sheet{box-shadow:none;padding:0;background:#fff;color:#000}
   .sheet::before{display:none}
   .g-lyrics .sec{color:#444}

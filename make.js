@@ -1,7 +1,9 @@
 (function(){
 "use strict";
 const CHIPS = {
-  occasion: ["A favorite memory","Our story","A theme or feeling","Birthday","Anniversary","Thank you","Just because","Wedding","New baby","Graduation","Retirement","Work anniversary","Boss's Day","Get well","Miss you","Another occasion"],
+  occasion: ["A favorite memory","Our story","A theme or feeling","Birthday","Anniversary","Thank you","Just because","Mother's Day","Father's Day","Valentine's Day","Christmas",
+    "Wedding","Proposal","New baby","Graduation","Congratulations","Good luck","Retirement","Work anniversary","Boss's Day","Get well","Miss you","An apology",
+    "A song in their memory","A song about a pet","A prayer or blessing","Another occasion"],
   tone: ["Heartfelt","Funny","Nostalgic","Grateful","Romantic","Playful","Proud","Uplifting","Tender","Bittersweet"],
   genre: ["Acoustic folk","Country","Pop","R&B","Rock","Gospel","Jazz","Hip-hop","Tejano","Lullaby"],
   voice: ["No preference","A man's voice","A woman's voice","A duet"],
@@ -13,7 +15,7 @@ const CHIPS = {
 const SHOW = { occasion: 6, tone: 5, genre: 5, language: 7, instruments: 6 }; // every language is shown: people were missing the ones under "More"
 // soundBy: who chose the tone and style ("" not yet, "suggested" from the story, "you" the customer).
 // suggestNote: the line that explains the suggestion. suggestedFor: the story it was made from.
-const blank = () => ({recipient:"",relationship:"",occasion:"A favorite memory",sender:"",a1:"",a2:"",a3:"",a4:"",sayName:"",email:"",
+const blank = () => ({recipient:"",relationship:"",occasion:"A favorite memory",sender:"",a1:"",a2:"",a3:"",a4:"",mention:"",leaveOut:"",sayName:"",email:"",
   tone:"Heartfelt",genre:"Acoustic folk",voice:"No preference",tempo:"Let the song decide",language:"English",inspiration:"",title:"",lyrics:"",style:"",note:"",
   soundBy:"",suggestNote:"",suggestedFor:"",occasionOther:"",english:"",groupUsed:"",instruments:"",arrangement:""});
 // A song about a subject (young love, growing old) rather than about the person's own story.
@@ -101,6 +103,7 @@ function questions(){ return questionsFor(draft.occasion); }
 function applyOccasion(){
   $("#occasion-other").hidden = draft.occasion !== OTHER;
   $("#theme-note").hidden = draft.occasion !== THEME;
+  $("#mention-field").hidden = draft.occasion === THEME; // a theme song already asks for the pictures to put in it
   if (draft.occasion !== OTHER) $("#occ-fix").hidden = true;
   const q = questions();
   $("#details-h").textContent = q[0];
@@ -276,7 +279,7 @@ $$("[data-back]").forEach(b => b.addEventListener("click", () => go(step - 1)));
 // After the story, Claude suggests the tone and style that fit it. They arrive already selected on the next
 // step, where the customer can change them. No suggestion (a slow or failed request) just leaves the usual defaults.
 async function suggestSound(){
-  const story = JSON.stringify([draft.recipient, draft.relationship, occasion(), storyParts(), others().map(p => p.id)]);
+  const story = JSON.stringify([draft.recipient, draft.relationship, occasion(), storyParts(), others().map(p => p.id), mention()]);
   if (draft.soundBy === "you" || story === draft.suggestedFor) return;
   let out = null;
   try { out = await Promise.race([api("/api/suggest", { method: "POST", body: { brief: brief() } }), new Promise(r => setTimeout(() => r(null), 9000))]); } catch (e) {}
@@ -288,14 +291,27 @@ async function suggestSound(){
   $("#suggest-note").textContent = draft.suggestNote;
   saveDraft(); paintChips(); updateRecord();
 }
+// The small true details, and what to keep out. Neither is one of the four answers: they are not shown on the gift page.
+const mention = () => (draft.occasion === THEME ? "" : String(draft.mention || "").trim());
+const leaveOut = () => String(draft.leaveOut || "").trim();
+// A story of one short answer makes a song of general feelings. Said once, gently; the customer can carry on as they are.
+let nudged = false;
+const thinStory = () => draft.occasion !== THEME && !others().length && storyParts().length < 2
+  && (storyParts().map(p => p[1]).join(" ") + " " + mention()).trim().length < 90;
 $("#story-next").addEventListener("click", async e => {
-  const b = e.currentTarget, msg = validate(1);
+  const b = e.currentTarget, msg = validate(1), nudge = $("#story-nudge");
   if (msg){ $(".err", b.closest(".step")).textContent = msg; return; }
+  if (thinStory() && !nudged){
+    nudged = true; nudge.hidden = false; b.textContent = "Continue as it is";
+    nudge.textContent = "One more detail makes this song theirs. Answer another question, or add a place, a name or something they always say. The song can only use what you tell us.";
+    return;
+  }
+  nudge.hidden = true;
   if (busy) return; busy = true; b.disabled = true;
-  const label = b.textContent; b.textContent = "Reading your story\u2026";
+  b.textContent = "Reading your story\u2026";
   await syncGroup();
   await suggestSound();
-  b.textContent = label; b.disabled = false; busy = false;
+  b.textContent = "Continue"; b.disabled = false; busy = false;
   go(2);
 });
 $("#back-from-lyrics").addEventListener("click", () => go(ref ? 4 : 2));
@@ -349,7 +365,7 @@ function stopProgress(){
 /* ---------- lyrics ---------- */
 const brief = () => ({ recipient: draft.recipient, sender: draft.sender, relationship: draft.relationship, occasion: occasion(),
   tone: draft.tone, genre: draft.genre, voice: draft.voice, tempo: draft.tempo, language: draft.language, sayName: draft.sayName, inspiration: draft.inspiration, instruments: draft.instruments,
-  contact: draft.email, answers: storyParts().map(p => ({ q: p[0], a: p[1] })), group: grp ? { id: grp.id, key: grp.key } : undefined });
+  contact: draft.email, answers: storyParts().map(p => ({ q: p[0], a: p[1] })), mention: mention(), avoid: leaveOut(), group: grp ? { id: grp.id, key: grp.key } : undefined });
 // The same, for recording: only the people whose memories the lyrics in hand were written from are signed on the song.
 const recordBrief = () => { const b = brief(); if (b.group) b.group.used = usedIds().map(Number); return b; };
 async function writeLyrics(again){
@@ -597,10 +613,18 @@ function renderHeard(){
   box.hidden = !mine; if (!mine) return;
   const name = view.recipient || "They", replies = view.replies || [];
   note.textContent = view.firstPlayedAt ? name + " first played it on " + longDate(view.firstPlayedAt) + "."
-    : name + " hasn't played it yet. This page shows when they do, and anything they write back.";
-  list.textContent = "";
-  if (replies.length) list.append(el("h3", null, name + " wrote back"));
-  replies.forEach(r => list.append(el("blockquote", "reply-in", r.body), el("p", "status-line", longDate(r.at))));
+    : name + " hasn't played it yet. This page shows when they do, and anything they write or record back.";
+  const vids = view.reactions || [], sig = replies.length + "|" + vids.map(v => v.id).join(",");
+  if (list.dataset.sig !== sig){
+    list.dataset.sig = sig; list.textContent = "";
+    if (replies.length) list.append(el("h3", null, name + " wrote back"));
+    replies.forEach(r => list.append(el("blockquote", "reply-in", r.body), el("p", "status-line", longDate(r.at))));
+    if (vids.length) list.append(el("h3", null, name + " sent you a video"));
+    vids.forEach(v => {
+      const vid = el("video", "reply-vid"); vid.controls = true; vid.preload = "metadata"; vid.playsInline = true; vid.setAttribute("playsinline", ""); vid.src = v.url;
+      list.append(vid, el("p", "status-line", longDate(v.at) + ". Only you can see this."));
+    });
+  }
   // Kindness travelling on: songs since started from this one's page, or by the people who helped make it.
   const n = view.passedOn || 0;
   $("#passed-note").textContent = n ? "Kindness travels: " + (n === 1 ? "one new song has" : n + " new songs have") + " been started because of this one." : "";
@@ -817,6 +841,9 @@ function renderTouches(own, platinum){
       : "It appears with the song on " + name + "'s page, and on the lyric sheet.";
     $("#photo-pick").textContent = view.photoUrl ? "Change the photo" : "Choose a photo";
     $("#photo-remove").hidden = !view.photoUrl;
+    // May the photo be shown with what they write back? It takes the sender's yes, the recipient's, and then ours.
+    $("#photo-share-row").hidden = !view.photoUrl; $("#photo-share").checked = !!view.photoShare;
+    $("#photo-share-say").textContent = "Songpost may show this photo beside what " + name + " writes back, as a testimonial. Only if " + name + " agrees too, and only after we have looked at it.";
   }
 }
 
@@ -952,6 +979,9 @@ function renderPlat(){
   let hear = document.getElementById("lead-audio");
   if (!hear){
     hear = document.createElement("audio"); hear.id = "lead-audio"; hear.controls = true; hear.preload = "none";
+    // the record beside it turns, and its lines ripple, while a take plays here too
+    hear.addEventListener("play", () => $("#make-record").classList.add("spinning"));
+    ["pause", "ended", "emptied"].forEach(ev => hear.addEventListener(ev, () => { if (!(view && view.status === "generating")) $("#make-record").classList.remove("spinning"); }));
     hear.style.cssText = "display:block;width:100%;margin-top:12px";
     hear.setAttribute("aria-label", "The take " + name + " will hear");
     lead.append(hear);
@@ -987,6 +1017,14 @@ $("#photo-file").addEventListener("change", async e => {
     view = json; renderPlat(); $("#photo-note").textContent = "Your photo is on their page.";
   } catch (x) { note.textContent = ""; err.textContent = x.message; }
   photoBusy = false; $("#photo-pick").disabled = false;
+});
+$("#photo-share").addEventListener("change", async e => {
+  if (!ref) return;
+  const box = e.currentTarget, want = box.checked; $("#photo-err").textContent = "";
+  try {
+    view = await call("/api/orders/" + ref.id + "/photo-share", { method: "POST", body: { ok: want } }); renderPlat();
+    $("#photo-note").textContent = want ? "Thank you. It is only shown if " + (view.recipient || "they") + " agrees as well." : "Understood. The photo will not be shown anywhere but their page.";
+  } catch (x) { box.checked = !want; $("#photo-err").textContent = x.message; }
 });
 $("#photo-remove").addEventListener("click", async () => {
   if (photoBusy || !ref) return; photoBusy = true;
@@ -1106,7 +1144,13 @@ async function loadVoices(){
   list = (Array.isArray(list) ? list : []).filter(v => v && typeof v.quote === "string" && v.quote.trim());
   const box = $("#voices");
   list.slice(0, 3).forEach(v => {
-    const fig = el("figure", "voice"); fig.append(el("blockquote", null, v.quote.trim()));
+    const fig = el("figure", "voice");
+    if (typeof v.photo === "string" && v.photo.charAt(0) === "/"){ // a photo the buyer and the recipient both allowed, chosen by the owner
+      const pic = el("img", "voice-pic"); pic.src = v.photo; pic.alt = ""; pic.loading = "lazy";
+      pic.addEventListener("error", () => { pic.remove(); fig.classList.remove("has-pic"); });
+      fig.classList.add("has-pic"); fig.append(pic);
+    }
+    fig.append(el("blockquote", null, v.quote.trim()));
     if (typeof v.name === "string" && v.name.trim()) fig.append(el("figcaption", null, v.name.trim()));
     box.append(fig);
   });
@@ -1114,6 +1158,9 @@ async function loadVoices(){
   if (list[0]){
     const f = $("#founder");
     $("blockquote", f).textContent = list[0].quote.trim(); $("figcaption", f).textContent = (list[0].name || "").trim();
+    if (typeof list[0].photo === "string" && list[0].photo.charAt(0) === "/"){
+      const pic = el("img", "voice-pic"); pic.src = list[0].photo; pic.alt = ""; pic.addEventListener("error", () => pic.remove()); f.prepend(pic);
+    }
     f.hidden = false;
   }
 }
