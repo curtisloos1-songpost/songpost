@@ -165,7 +165,8 @@ module.exports = {
   // Counts across every song, however many there are.
   totals() {
     return db.prepare(`SELECT COUNT(*) AS songs, COALESCE(SUM(paid), 0) AS paid,
-      COALESCE(SUM(CASE WHEN paid = 1 THEN price_cents ELSE 0 END), 0) AS cents FROM orders`).get();
+      COALESCE(SUM(CASE WHEN paid = 1 THEN price_cents ELSE 0 END), 0) AS cents FROM orders
+      WHERE COALESCE(stripe_session, '') <> 'own'`).get(); // the owner's own uploads are not songs the site recorded or sold
   },
   // Paid songs whose send date has arrived and whose message has not been queued yet.
   dueSchedules(cutoffDay) {

@@ -75,6 +75,7 @@ function sungLyrics(order) {
 //   second   a second take, when there is no premium model and the customer only recorded one before paying
 function owedKind(o) {
   if (!o || !o.paid || o.removed || o.tier !== 'platinum' || !o.takes.length) return null;
+  if (o.engine === 'upload') return null; // the owner's own recording, added from the admin page: there is nothing for the studio to record
   if (o.premium === 1 && premiumModel()) return 'premium';
   return o.takes.length === 1 ? 'second' : null;
 }
@@ -142,6 +143,8 @@ async function run(id) {
     const song = { title: order.title, style: order.style, lyrics: sungLyrics(order), voice, genre: order.genre, tone: order.tone, arrangement: order.arrangement || '' };
     if (premium) song.model = premium;
     const why = e => (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed';
+    // Running counts for the admin page's engine report. Counting never gets in the way of a song.
+    const count = (what, name, amount) => { try { db.addUsage(`eng_${what}:${name}`, 1, amount || 0); } catch (x) { /* not counted */ } };
     try {
       out = await engine.generate(song);
     } catch (e) {
@@ -152,11 +155,14 @@ async function run(id) {
       if (!backup || (e && e.status === 422)) throw e;
       console.error(`The ${engine.name} engine could not record order ${id}; recording it on ${backup.name} instead.`, e);
       db.noteErr('music:' + engine.name, why(e));
+      count('fail', engine.name);
       stoodInFor = engine.name; engine = backup;
       try { out = await engine.generate(song); }
-      catch (e2) { if (!(e2 && e2.status === 422)) db.noteErr('music:' + engine.name, why(e2)); throw Object.assign(e2, { noted: true }); }
+      catch (e2) { if (!(e2 && e2.status === 422)) { db.noteErr('music:' + engine.name, why(e2)); count('fail', engine.name); } throw Object.assign(e2, { noted: true }); }
+      count('standin', engine.name);
     }
     db.noteOk('music:' + engine.name);
+    count('ok', engine.name, order.gen_started_at ? Math.round((Date.now() - order.gen_started_at) / 1000) : 0);
     const fresh = db.getOrder(id);
     if (!fresh) return; // the song was deleted while it was recording
     const n = fresh.takes.length;
@@ -196,7 +202,7 @@ async function run(id) {
   } catch (e) {
     console.error('Recording failed for order', id, e);
     // A song the music service turned down for its words (422) is the customer's to fix, not an outage.
-    if (!(e && (e.status === 422 || e.noted))) { let name = 'unknown'; try { name = getEngine().name; } catch (x) { /* a wrong engine name */ } db.noteErr('music:' + name, (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed'); }
+    if (!(e && (e.status === 422 || e.noted))) { let name = 'unknown'; try { name = getEngine().name; } catch (x) { /* a wrong engine name */ } db.noteErr('music:' + name, (e && (e.detail || e.publicMessage || e.message)) || 'The recording failed'); try { db.addUsage('eng_fail:' + name, 1, 0); } catch (x) { /* not counted */ } }
     fail(id, e.publicMessage || 'The recording did not finish. Try again.');
     afterRecording(id, kind, true);
   }

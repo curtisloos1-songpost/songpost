@@ -9,7 +9,7 @@
 <meta property="og:description" content="Tell us about someone you love. We write and record a song about them, and you send it in minutes.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Jost:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Jost:wght@400;500&family=Mrs+Saint+Delafield&family=Great+Vibes&family=Allura&family=Alex+Brush&family=Dancing+Script:wght@500&family=Sacramento&family=Pinyon+Script&family=Homemade+Apple&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -120,13 +120,13 @@
                 <p class="status-line">Send them this link. Answer your own questions above, then carry on whenever you're ready: the song uses whatever has been added by the time the lyrics are written.</p>
                 <div class="linkbox">
                   <input id="tg-link" readonly aria-label="Invite link">
-                  <button class="btn small" type="button" id="tg-copy">Copy link</button>
+                  <button class="btn small ico ico-copy" type="button" id="tg-copy">Copy link</button>
                 </div>
                 <div class="row">
-                  <button class="btn small" type="button" id="tg-native" hidden>Share it</button>
-                  <a class="btn small" id="tg-sms">Text it</a>
-                  <a class="btn small" id="tg-wa" target="_blank" rel="noopener">WhatsApp it</a>
-                  <a class="btn small" id="tg-mail">Email it</a>
+                  <button class="btn small ico ico-share" type="button" id="tg-native" hidden>Share it</button>
+                  <a class="btn small ico ico-sms" id="tg-sms">Text it</a>
+                  <a class="btn small ico ico-wa" id="tg-wa" target="_blank" rel="noopener">WhatsApp it</a>
+                  <a class="btn small ico ico-mail" id="tg-mail">Email it</a>
                 </div>
               </div>
               <div id="tg-list"></div>
@@ -268,7 +268,7 @@
               </button>
               <button class="tier" type="button" data-tier="keepsake" aria-pressed="false">
                 <span class="t-top"><span><i class="disc plate" data-metal="platinum" aria-hidden="true"></i>Platinum record</span><span>$39.99</span></span>
-                <span class="t-sub" id="plat-sub">Everything in Gold, plus your photo on their page, a lyric sheet designed to print and frame, and both takes.</span>
+                <span class="t-sub" id="plat-sub">Everything in Gold, plus your photo on their page, a lyric sheet designed to print and frame, and a second take to choose between.</span>
               </button>
             </div>
             <div class="voices" id="voices" aria-label="What people have said" hidden></div>
@@ -314,11 +314,13 @@
             </details>
             <details class="promise touch" id="sign-box">
               <summary><span id="sign-sum">Sign it</span></summary>
-              <p class="status-line">Sign your name, or write a few words, with your finger or the mouse. It appears under your note.</p>
-              <div class="sign-pad"><canvas id="sign-canvas" width="1200" height="400" role="img" aria-label="A box to sign in"></canvas></div>
+              <p class="status-line">Type your name, or a few words, and choose the handwriting. It appears under your note.</p>
+              <label class="field">Your signature
+                <input id="sign-text" type="text" maxlength="60" autocomplete="off" placeholder="Love, Sam">
+              </label>
+              <div class="sign-fonts" id="sign-fonts" role="group" aria-label="Handwriting"></div>
               <div class="row">
                 <button class="btn small" type="button" id="sign-save">Save it</button>
-                <button class="btn quiet small" type="button" id="sign-clear">Clear</button>
                 <button class="btn quiet small" type="button" id="sign-remove" hidden>Remove it</button>
               </div>
               <p class="status-line" id="sign-note" role="status"></p>
@@ -359,14 +361,17 @@
             <p class="lede" id="done-p"></p>
             <div class="linkbox">
               <input id="gift-link" readonly aria-label="Link to the song">
-              <button class="btn small" type="button" id="copy-link">Copy link</button>
             </div>
-            <div class="row">
-              <button class="btn" type="button" id="share-btn" hidden>Share it</button>
-              <a class="btn" id="sms-link">Text it</a>
-              <a class="btn" id="wa-link" target="_blank" rel="noopener">WhatsApp it</a>
-              <a class="btn" id="mail-link">Email it</a>
+            <div class="share-row" role="group" aria-label="Ways to send it">
+              <button class="share s-copy" type="button" id="copy-link">Copy link</button>
+              <a class="share s-sms" id="sms-link">Messages</a>
+              <a class="share s-wa" id="wa-link" target="_blank" rel="noopener">WhatsApp</a>
+              <a class="share s-mail" id="mail-link">Email</a>
+              <a class="share s-x" id="x-link" target="_blank" rel="noopener">X</a>
+              <a class="share s-fb" id="fb-link" target="_blank" rel="noopener">Facebook</a>
+              <button class="share s-more" type="button" id="share-btn" hidden>More</button>
             </div>
+            <p class="status-line">A post on X or Facebook is public. Anyone who sees it can open the song.</p>
           </div>
           <div id="send-date" hidden>
             <label class="field"><span id="to-label">Their email or mobile number</span>

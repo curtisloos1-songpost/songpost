@@ -22,6 +22,14 @@ body{margin:0;background:#E3EBED;color:var(--ink);font-family:var(--sans)}
 .bar button.go{background:var(--ink);color:#fff}
 .bar label{font-size:.92rem;display:inline-flex;align-items:center;gap:6px}
 .hint{max-width:820px;margin:0 auto;padding:6px 16px 14px;font-size:.86rem;color:var(--soft)}
+.mail{max-width:820px;margin:0 auto;padding:8px 16px 4px;display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
+.mail[hidden]{display:none}
+.mail input{flex:1;min-width:13em;font:inherit;font-size:1rem;padding:9px 12px;border:1px solid var(--ink);border-radius:3px;background:#fff;color:var(--ink)}
+.mail button{font:inherit;font-size:.92rem;padding:9px 16px;border:1px solid var(--ink);border-radius:3px;background:var(--ink);color:#fff;cursor:pointer}
+.mail button.plain{background:transparent;color:var(--ink)}
+.mail button[hidden],.mail input[hidden]{display:none}
+.mail p{flex-basis:100%;margin:0;font-size:.86rem;color:var(--soft)}
+.mail p:empty{display:none}
 .frame{margin:0 auto 40px;overflow:hidden}
 .paper{width:var(--w);height:var(--h);background:#fff;position:relative;transform-origin:top left;
   padding:.82in .9in .7in;display:flex;flex-direction:column;align-items:center;text-align:center;overflow:hidden;
@@ -48,12 +56,21 @@ body{margin:0;background:#E3EBED;color:var(--ink);font-family:var(--sans)}
 .st p{margin:0;overflow-wrap:anywhere}
 .orn.low{margin:.16in 0 .1in}
 .sig{display:block;height:.5in;max-width:2.6in;margin:0 auto .04in;color:var(--ink);flex:none}
+.sigt{margin:0 auto .04in;text-align:center;color:var(--ink);line-height:1.1;flex:none}
+.sigf-flowing{font-family:"Mrs Saint Delafield",cursive;font-size:30pt;line-height:1}
+.sigf-elegant{font-family:"Great Vibes",cursive;font-size:23pt}
+.sigf-formal{font-family:"Allura",cursive;font-size:25pt}
+.sigf-brush{font-family:"Alex Brush",cursive;font-size:24pt}
+.sigf-friendly,.sigf-handwritten{font-family:"Dancing Script",cursive;font-weight:500;font-size:21pt}
+.sigf-fine{font-family:"Sacramento",cursive;font-size:25pt}
+.sigf-classic{font-family:"Pinyon Script",cursive;font-size:23pt}
+.sigf-pen{font-family:"Homemade Apple",cursive;font-size:14pt;line-height:1.5}
 .from{font:italic 500 15pt/1.2 var(--serif);margin:0;max-width:100%;overflow-wrap:anywhere}
 .date{font:500 8pt/1.3 var(--sans);letter-spacing:.22em;text-transform:uppercase;color:var(--soft);margin:.06in 0 0}
 .mark{font:500 6.5pt/1 var(--sans);letter-spacing:.3em;text-transform:uppercase;color:var(--silver);margin:.13in 0 0}
 @media print{
   body{background:#fff}
-  .bar,.hint,.warn{display:none !important}
+  .bar,.hint,.warn,.mail{display:none !important}
   .frame{width:auto !important;height:auto !important;margin:0;overflow:visible}
   .paper{transform:none !important;box-shadow:none}
 }
@@ -113,6 +130,39 @@ const JS = `
   if (sel) sel.addEventListener('change', function(){ paperSize(sel.value === 'a4'); });
   if (show && pic) show.addEventListener('change', function(){ wantPic = show.checked; fit(); });
   document.getElementById('print').addEventListener('click', function(){ window.print(); });
+  // The words by email. With a mail service connected we send it; without one, their own mail app opens with it written.
+  var mail = document.querySelector('.mail'), mailBtn = document.getElementById('mail'), said = document.getElementById('mail-said');
+  var addr = document.getElementById('mail-to'), go = document.getElementById('mail-go'), copy = document.getElementById('mail-copy');
+  var M = __MAIL__;
+  function mailto(){
+    var st = ly.querySelectorAll('.st'), words = [];
+    for (var i = 0; i < st.length; i++){ var ps = st[i].querySelectorAll('p'), l = []; for (var j = 0; j < ps.length; j++) l.push(ps[j].textContent); words.push(l.join('\\n')); }
+    var head = ['"' + M.title + '"', 'A song for ' + M.recipient + ', from ' + M.from, '', 'Listen to it here: ' + M.gift, 'Lyric sheet to print and frame: ' + location.href];
+    function make(body){ return 'mailto:?subject=' + encodeURIComponent('The words to "' + M.title + '"') + '&body=' + encodeURIComponent(body.join('\\r\\n')); }
+    var full = make(head.concat(['', words.join('\\n\\n')]));
+    var phone = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    return phone || full.length <= 1900 ? full : make(head.concat(['', 'The words are on the page.']));
+  }
+  mailBtn.addEventListener('click', function(){
+    if (M.api){ mail.hidden = !mail.hidden; if (!mail.hidden){ addr.hidden = false; go.hidden = false; go.disabled = false; addr.focus(); } return; }
+    var a = document.createElement('a'); a.href = mailto(); a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove(); mail.hidden = false;
+    said.textContent = 'Your mail app should open with the email written. Put in your own address and send it. Nothing opened?';
+  });
+  copy.addEventListener('click', function(){
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(location.href).then(function(){ said.textContent = 'Link copied. Paste it into an email to yourself.'; }, function(){ said.textContent = 'Copy this link: ' + location.href; });
+    else said.textContent = 'Copy this link: ' + location.href;
+  });
+  function sendMail(){
+    var to = addr.value.replace(/^\\s+|\\s+$/g, '');
+    if (!/^\\S+@\\S+\\.\\S+$/.test(to)){ said.textContent = 'Type your email address first.'; addr.focus(); return; }
+    go.disabled = true; said.textContent = 'Sending.';
+    fetch(M.api, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: to, take: M.take }) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if (!r.ok) throw new Error(j.error || 'Something went wrong. Try again.'); }); })
+      .then(function(){ said.textContent = 'Sent to ' + to + '. It can take a minute. If you don\\'t see it, look in your junk folder.'; addr.hidden = true; go.hidden = true; })
+      .catch(function(e){ said.textContent = e && e.message && !/fetch/i.test(e.message) ? e.message : 'You seem to be offline. Check your connection and try again.'; go.disabled = false; });
+  }
+  go.addEventListener('click', sendMail);
+  addr.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); sendMail(); } });
   window.addEventListener('resize', scale);
   if (pic){ pic.addEventListener('load', fit); pic.addEventListener('error', function(){ wantPic = false; fit(); }); }
   fit(); scale();
@@ -121,9 +171,20 @@ const JS = `
 `;
 
 /*
-  s: { title, recipient, from, paidAt, lyrics, photoUrl, backUrl, signature }
+  s: { title, recipient, from, paidAt, lyrics, photoUrl, backUrl, signature, giftUrl, mailApi, canEmail, take }
   Section labels ([Verse 1], [Chorus]) are left off: on a framed sheet the song reads as a poem.
 */
+// A signature on the sheet: typed, in the handwriting the sender chose, or the drawing of an older one.
+function sigHtml(sig) {
+  if (Array.isArray(sig)) return strokesSvg(sig, 'sig');
+  if (sig && sig.text) return `<p class="sigt sigf-${esc(sig.font)}">${esc(sig.text)}</p>`;
+  return '';
+}
+// What the email button needs, written into the page's script. "<" is escaped so nothing in a title can end the script early.
+function mailData(s) {
+  return JSON.stringify({ title: s.title || 'Your song', recipient: s.recipient || '', from: s.from || '', gift: s.giftUrl || '',
+    api: s.canEmail ? s.mailApi : '', take: s.take == null ? null : s.take }).replace(/</g, '\\u003c').replace(/\u2028|\u2029/g, '');
+}
 function sheetHtml(s) {
   const stanzas = parseSections(s.lyrics).filter(x => x.lines.length)
     .map(x => `<div class="st">${x.lines.map(l => `<p>${esc(l)}</p>`).join('')}</div>`).join('\n      ');
@@ -138,7 +199,7 @@ function sheetHtml(s) {
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Jost:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Jost:wght@400;500&family=Mrs+Saint+Delafield&family=Great+Vibes&family=Allura&family=Alex+Brush&family=Dancing+Script:wght@500&family=Sacramento&family=Pinyon+Script&family=Homemade+Apple&display=swap" rel="stylesheet">
 <style>${CSS}</style>
 <style id="page-size">@page{size:8.5in 11in;margin:0}</style>
 </head>
@@ -147,7 +208,13 @@ function sheetHtml(s) {
   <a href="${esc(s.backUrl)}">Back to the song</a><span class="grow"></span>
   ${s.photoUrl ? '<label><input type="checkbox" id="show-pic" checked> Show the photo</label>' : ''}
   <label>Paper <select id="paper"><option value="letter">US Letter</option><option value="a4">A4</option></select></label>
+  <button type="button" id="mail">Email it to myself</button>
   <button class="go" type="button" id="print">Print or save as PDF</button>
+</div>
+<div class="mail" hidden>
+  ${s.canEmail ? '<input type="email" id="mail-to" autocomplete="email" inputmode="email" maxlength="200" placeholder="Your email address" aria-label="Your email address"><button type="button" id="mail-go">Send it to me</button>' : '<input id="mail-to" hidden><button type="button" id="mail-go" hidden></button>'}
+  <p id="mail-said" role="status"></p>
+  ${s.canEmail ? '<p>You get the words and the links to the song and this sheet. We use your address for this one email only.</p><button type="button" id="mail-copy" hidden></button>' : '<button type="button" class="plain" id="mail-copy">Copy the link instead</button>'}
 </div>
 <p class="hint">To keep a copy, choose "Save as PDF" in the print window. For framing, print at 100% (no "fit to page") on heavy paper.</p>
 <p class="warn" role="status" hidden></p>
@@ -170,13 +237,13 @@ function sheetHtml(s) {
       ${stanzas}
     </div>
     <div class="orn low"><i></i>${heart}<i></i></div>
-    ${strokesSvg(s.signature, 'sig')}
+    ${sigHtml(s.signature)}
     <p class="from">From ${esc(s.from)}</p>
     <p class="date" data-ms="${Number(s.paidAt) || ''}">${esc(fallbackDate)}</p>
     <p class="mark">Songpost</p>
   </div>
 </div>
-<script>${JS}</script>
+<script>${JS.replace('__MAIL__', () => mailData(s))}</script>
 </body>
 </html>`;
 }

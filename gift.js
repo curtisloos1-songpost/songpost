@@ -74,8 +74,10 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   again.addEventListener("click", () => { if (audio && audio.playIntro) audio.playIntro(); });
   let voiceOk = !!g.voiceUrl; // false once the recording turns out not to play
   // Each take carries its own words, which differ when the lyrics were changed between takes.
+  let cur = { title: g.title, lyrics: g.lyrics, n: null }; // what is on the page now, for the email
   function useTake(url, title, lyrics, n, first){
     if (audio) audio.pause();
+    cur = { title: title || "", lyrics: lyrics || "", n: n };
     const intro = voiceOk ? { src: g.voiceUrl, label: "A message from " + g.sender, auto: !!first, onDone: () => { again.hidden = false; }, onBroken: () => { voiceOk = false; again.hidden = true; } } : null;
     audio = mountAudio(box, url, "Play the song", rec, played, intro);
     saveLink.href = url + (url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
@@ -100,17 +102,77 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   if (g.voiceUrl) sheet.append(again);
   useTake(g.audioUrl, g.title, g.lyrics, null, true);
 
+  /* The words by email, to keep. With a mail service connected we send it to the address they type.
+     Without one, their own mail app opens with the email already written, for them to send to themselves. */
+  const giftLink = location.origin + "/g/" + encodeURIComponent(id);
+  const mailBtn = el("button", "btn small", "Email this to myself"); mailBtn.type = "button"; mailBtn.setAttribute("aria-expanded", "false");
+  const mailBox = el("div", "mail-me"); mailBox.hidden = true;
+  const mailSaid = el("p", "status-line"); mailSaid.setAttribute("role", "status");
+  const copyBtn = el("button", "btn quiet small", "Copy the link instead"); copyBtn.type = "button";
+  copyBtn.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(giftLink); mailSaid.textContent = "Link copied. Paste it into an email to yourself."; }
+    catch (e) { mailSaid.textContent = "Copy this link: " + giftLink; }
+  });
+  // The email their own mail app opens with. A phone takes the words too; a computer's mail app can refuse a long one, so there it carries the links.
+  function mailtoHref(){
+    const head = [cur.title ? '"' + cur.title + '"' : "Your song", "A song for " + g.recipient + ", from " + (g.fromAll || g.sender), "", "Listen to it here: " + giftLink];
+    if (g.sheetUrl) head.push("Lyric sheet to print and frame: " + location.origin + g.sheetUrl + (cur.n != null ? "?take=" + cur.n : ""));
+    const words = String(cur.lyrics || "").split(/\r?\n/).map(l => l.trim()).filter(l => !/^\[.+\]$/.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    const subject = cur.title ? 'The words to "' + cur.title + '"' : "The words to my song";
+    const make = body => "mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body.join("\r\n"));
+    const full = make(head.concat(["", words]));
+    const phone = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    return phone || full.length <= 1900 ? full : make(head.concat(["", "The words are on the page."]));
+  }
+  if (g.canEmail){
+    const f = el("form", "mail-row"); f.noValidate = true;
+    const addr = el("input"); addr.type = "email"; addr.autocomplete = "email"; addr.inputMode = "email"; addr.maxLength = 200;
+    addr.placeholder = "Your email address"; addr.setAttribute("aria-label", "Your email address");
+    const go = el("button", "btn small primary", "Send it to me"); go.type = "submit";
+    f.append(addr, go);
+    f.addEventListener("submit", async e => {
+      e.preventDefault();
+      if (contactKind(addr.value) !== "email"){ mailSaid.textContent = "Type your email address first."; addr.focus(); return; }
+      go.disabled = true; mailSaid.textContent = "Sending.";
+      try {
+        await api("/api/gift/" + encodeURIComponent(id) + "/email", { method: "POST", body: { email: addr.value.trim(), take: cur.n } });
+        mailSaid.textContent = "Sent to " + addr.value.trim() + ". It can take a minute. If you don't see it, look in your junk folder.";
+        f.hidden = true;
+      } catch (err) { mailSaid.textContent = err.message; go.disabled = false; }
+    });
+    mailBox.append(f, mailSaid, el("p", "status-line", "You get the words and the link to this page. We use your address for this one email only."));
+    mailBtn.addEventListener("click", () => {
+      mailBox.hidden = !mailBox.hidden; mailBtn.setAttribute("aria-expanded", String(!mailBox.hidden));
+      if (!mailBox.hidden){ f.hidden = false; go.disabled = false; addr.focus(); }
+    });
+  } else {
+    mailBox.append(mailSaid, copyBtn);
+    mailBtn.addEventListener("click", () => {
+      const a = el("a"); a.href = mailtoHref(); a.hidden = true; document.body.append(a); a.click(); a.remove(); // a plain link, so the phone hands it to its mail app
+      mailBox.hidden = false; mailBtn.setAttribute("aria-expanded", "true");
+      mailSaid.textContent = "Your mail app should open with the email written. Put in your own address and send it. Nothing opened?";
+      if (!fromSender) api("/api/gift/" + encodeURIComponent(id) + "/emailed", { method: "POST" }).catch(() => {});
+    });
+  }
+
   const keep = el("div", "keep");
   keep.append(saveLink);
   if (g.sheetUrl) keep.append(sheetLink);
+  keep.append(mailBtn);
   keep.append(el("p", "status-line", "Save the song if you want to keep it. This page may not stay online."));
+  keep.append(mailBox);
   sheet.append(keep);
 
   // The note, signed: in the sender's own hand when they signed it, else with their name.
   if (g.note || g.signature){
     const note = el("div", "g-note");
     if (g.note) note.append(el("p", null, g.note));
-    if (g.signature){ const s = el("div", "g-sig"); s.innerHTML = sigSVG(g.signature); note.append(s); }
+    if (g.signature){
+      const s = el("div", "g-sig");
+      if (Array.isArray(g.signature)) s.innerHTML = sigSVG(g.signature);                  // an older signature, drawn by hand
+      else s.append(el("span", "sigt sigf-" + g.signature.font, g.signature.text));      // typed, in the handwriting they chose
+      note.append(s);
+    }
     else note.append(el("p", "sig", g.sender));
     sheet.append(note);
   }

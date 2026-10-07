@@ -70,17 +70,18 @@ button,input,textarea{font:inherit;color:inherit}
 :root[data-look="around"] .hole-heart{display:none}
 /* while a song plays: the well beats, and the engraved lines travel outward */
 .rec-stage:has(.record.spinning) .hb{animation:beat 1.4s ease-in-out infinite}
-.rec-stage:has(.record.spinning) .hl{animation:spread 1.4s linear infinite}
+.rec-stage:has(.record.spinning) .hl{animation:spread 1.8s linear infinite}
+.rec-stage:has(.record.spinning) .rings .hb{animation:none}
 @keyframes beat{0%,30%,100%{transform:scale(1)}10%{transform:scale(1.03)}20%{transform:scale(1.008)}}
 @keyframes spread{to{transform:scale(calc(var(--k)*1.15));opacity:var(--o2)}}
 .record{position:relative;width:var(--rec);aspect-ratio:1;border-radius:50%;filter:drop-shadow(0 calc(var(--rec)*.05) calc(var(--rec)*.08) var(--shadow))}
 .record > svg{display:block;width:100%;height:100%}
 .record::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
-  background:conic-gradient(from 18deg,transparent 0deg,var(--shine) 16deg,transparent 46deg,var(--shade) 92deg,transparent 136deg,var(--shine) 186deg,transparent 222deg,var(--shade) 276deg,transparent 326deg,var(--shine) 348deg,transparent 360deg);
+  background:conic-gradient(from 18deg,var(--shine) 0deg,transparent 32deg,var(--shade) 82deg,transparent 128deg,var(--shine) 182deg,transparent 216deg,var(--shade) 272deg,transparent 324deg,var(--shine) 360deg);
   -webkit-mask:radial-gradient(circle,transparent 53.5%,#000 54.5%);mask:radial-gradient(circle,transparent 53.5%,#000 54.5%)}
-.record.spinning > svg{animation:spin 2.8s linear infinite}
+.record.spinning::after{animation:spin 3.6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion: reduce){.record.spinning > svg,.rec-stage:has(.record.spinning) .hb,.rec-stage:has(.record.spinning) .hl{animation:none}}
+@media (prefers-reduced-motion: reduce){.record.spinning::after,.rec-stage:has(.record.spinning) .hb,.rec-stage:has(.record.spinning) .hl{animation:none}}
 .make-side{order:-1;display:flex;flex-direction:column;align-items:center}
 .make-form{position:relative;z-index:1;min-width:0}
 
@@ -365,6 +366,14 @@ legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;padding:0;margin-bo
 .g-credit{text-align:center;font-size:.82rem;letter-spacing:.04em;color:var(--muted);margin:0 0 20px}
 .keep{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:14px 0;border-bottom:1px solid var(--rule)}
 .keep .status-line{margin:0;flex:1;min-width:12em}
+.mail-me{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.mail-me[hidden]{display:none}
+.mail-me .status-line{flex-basis:100%}
+.mail-me .status-line:empty{display:none}
+.mail-row{display:flex;flex-wrap:wrap;gap:8px;flex-basis:100%}
+.mail-row[hidden]{display:none}
+.mail-row input{flex:1;min-width:13em;padding:9px 12px;border:1px solid var(--rule);border-radius:3px;background:transparent;color:inherit;font-family:var(--sans);font-size:1rem}
+.mail-row input:focus-visible{outline:1px solid var(--focus);outline-offset:0;border-color:var(--focus)}
 .g-note{margin:0;padding:18px 0;border-bottom:1px solid var(--rule)}
 .g-note p{font-family:var(--serif);font-style:italic;font-size:1.35rem;line-height:1.4;margin:0;white-space:pre-wrap}
 .g-note .sig{font-family:var(--sans);font-style:normal;font-weight:500;font-size:.88rem;letter-spacing:.03em;margin-top:10px}
@@ -428,3 +437,42 @@ a.btn{text-decoration:none}
   .sheet::before{display:none}
   .g-lyrics .sec{color:#444}
 }
+
+/* Icons on the send buttons. Each is drawn in the button's own colour, so it suits both themes; the label stays beside it. */
+.btn.ico::before{content:"";flex:none;width:1.2em;height:1.2em;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
+.ico-copy{--ico:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%221.7%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M10%2013a5%205%200%200%200%207.54.54l3-3a5%205%200%200%200-7.07-7.07l-1.72%201.71%22/%3E%3Cpath%20d=%22M14%2011a5%205%200%200%200-7.54-.54l-3%203a5%205%200%200%200%207.07%207.07l1.71-1.71%22/%3E%3C/svg%3E")}
+.ico-share{--ico:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%221.7%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M4%2012v8a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2v-8%22/%3E%3Cpolyline%20points=%2216%206%2012%202%208%206%22/%3E%3Cline%20x1=%2212%22%20y1=%222%22%20x2=%2212%22%20y2=%2215%22/%3E%3C/svg%3E")}
+.ico-sms{--ico:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%221.7%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M21%2011.5a8.38%208.38%200%200%201-.9%203.8%208.5%208.5%200%200%201-7.6%204.7%208.38%208.38%200%200%201-3.8-.9L3%2021l1.9-5.7a8.38%208.38%200%200%201-.9-3.8%208.5%208.5%200%200%201%204.7-7.6%208.38%208.38%200%200%201%203.8-.9h.5a8.48%208.48%200%200%201%208%208v.5z%22/%3E%3Cline%20x1=%228.5%22%20y1=%2210%22%20x2=%2215.5%22%20y2=%2210%22/%3E%3Cline%20x1=%228.5%22%20y1=%2213.5%22%20x2=%2213%22%20y2=%2213.5%22/%3E%3C/svg%3E")}
+.ico-wa{--ico:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%221.7%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M21%2011.5a8.38%208.38%200%200%201-.9%203.8%208.5%208.5%200%200%201-7.6%204.7%208.38%208.38%200%200%201-3.8-.9L3%2021l1.9-5.7a8.38%208.38%200%200%201-.9-3.8%208.5%208.5%200%200%201%204.7-7.6%208.38%208.38%200%200%201%203.8-.9h.5a8.48%208.48%200%200%201%208%208v.5z%22/%3E%3Cg%20transform=%22translate%287.6%206.9%29%20scale%28.37%29%22%20stroke-width=%224%22%3E%3Cpath%20d=%22M22%2016.92v3a2%202%200%200%201-2.18%202%2019.79%2019.79%200%200%201-8.63-3.07%2019.5%2019.5%200%200%201-6-6%2019.79%2019.79%200%200%201-3.07-8.67A2%202%200%200%201%204.11%202h3a2%202%200%200%201%202%201.72%2012.84%2012.84%200%200%200%20.7%202.81%202%202%200%200%201-.45%202.11L8.09%209.91a16%2016%200%200%200%206%206l1.27-1.27a2%202%200%200%201%202.11-.45%2012.84%2012.84%200%200%200%202.81.7A2%202%200%200%201%2022%2016.92z%22/%3E%3C/g%3E%3C/svg%3E")}
+.ico-mail{--ico:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%221.7%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M4%204h16c1.1%200%202%20.9%202%202v12c0%201.1-.9%202-2%202H4c-1.1%200-2-.9-2-2V6c0-1.1.9-2%202-2z%22/%3E%3Cpolyline%20points=%2222,6%2012,13%202,6%22/%3E%3C/svg%3E")}
+
+/* The ways to send a song: a row of round icons with a word under each, like a phone's share sheet. */
+.share-row{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 4px;margin:6px 0 12px}
+@media (min-width:560px){.share-row{grid-template-columns:repeat(7,1fr)}}
+.share{display:flex;flex-direction:column;align-items:center;gap:7px;border:0;background:none;padding:0;color:var(--ink);font:inherit;font-size:.8rem;line-height:1.2;text-align:center;text-decoration:none;cursor:pointer}
+.share[hidden]{display:none}
+.share::before{content:"";width:52px;height:52px;border-radius:50%;background:var(--c) var(--g) center/var(--s,54%) no-repeat;outline:1px solid var(--rule);outline-offset:-1px}
+.share:focus-visible{outline:none}
+.share:focus-visible::before{outline:2px solid var(--focus);outline-offset:3px}
+.s-copy{--c:#3F5A63;--g:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22white%22%20stroke-width=%221.9%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M10%2013a5%205%200%200%200%207.54.54l3-3a5%205%200%200%200-7.07-7.07l-1.72%201.71%22/%3E%3Cpath%20d=%22M14%2011a5%205%200%200%200-7.54-.54l-3%203a5%205%200%200%200%207.07%207.07l1.71-1.71%22/%3E%3C/svg%3E")}
+.s-sms{--c:#34C759;--g:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20fill=%22white%22%20d=%22M12%203C6.48%203%202%206.94%202%2011.8c0%202.6%201.3%204.93%203.36%206.54-.1%201.2-.56%202.5-1.5%203.5%201.9-.05%203.5-.75%204.7-1.7%201.08.32%202.24.5%203.44.5%205.52%200%2010-3.94%2010-8.84C22%206.94%2017.52%203%2012%203z%22/%3E%3C/svg%3E");--s:58%}
+.s-wa{--c:#25D366;--g:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20fill=%22white%22%20d=%22M17.472%2014.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94%201.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198%200-.52.074-.792.372-.272.297-1.04%201.016-1.04%202.479%200%201.462%201.065%202.875%201.213%203.074.149.198%202.096%203.2%205.077%204.487.709.306%201.262.489%201.694.625.712.227%201.36.195%201.871.118.571-.085%201.758-.719%202.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421%207.403h-.004a9.87%209.87%200%2001-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86%209.86%200%2001-1.51-5.26c.001-5.45%204.436-9.884%209.888-9.884%202.64%200%205.122%201.03%206.988%202.898a9.825%209.825%200%20012.893%206.994c-.003%205.45-4.437%209.884-9.885%209.884m8.413-18.297A11.815%2011.815%200%200012.05%200C5.495%200%20.16%205.335.157%2011.892c0%202.096.547%204.142%201.588%205.945L.057%2024l6.305-1.654a11.882%2011.882%200%20005.683%201.448h.005c6.554%200%2011.89-5.335%2011.893-11.893a11.821%2011.821%200%2000-3.48-8.413Z%22/%3E%3C/svg%3E");--s:58%}
+.s-mail{--c:#3F5A63;--g:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22white%22%20stroke-width=%221.9%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M4%204h16c1.1%200%202%20.9%202%202v12c0%201.1-.9%202-2%202H4c-1.1%200-2-.9-2-2V6c0-1.1.9-2%202-2z%22/%3E%3Cpolyline%20points=%2222,6%2012,13%202,6%22/%3E%3C/svg%3E")}
+.s-x{--c:#000000;--g:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20fill=%22white%22%20d=%22M14.234%2010.162%2022.977%200h-2.072l-7.591%208.824L7.251%200H.258l9.168%2013.343L.258%2024H2.33l8.016-9.318L16.749%2024h6.993zm-2.837%203.299-.929-1.329L3.076%201.56h3.182l5.965%208.532.929%201.329%207.754%2011.09h-3.182z%22/%3E%3C/svg%3E");--s:44%}
+.s-fb{--c:#FFFFFF;--g:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cpath%20fill=%22%230866FF%22%20d=%22M9.101%2023.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085%201.848-5.978%205.858-5.978.401%200%20.955.042%201.468.103a8.68%208.68%200%200%201%201.141.195v3.325a8.623%208.623%200%200%200-.653-.036%2026.805%2026.805%200%200%200-.733-.009c-.707%200-1.259.096-1.675.309a1.686%201.686%200%200%200-.679.622c-.258.42-.374.995-.374%201.752v1.297h3.919l-.386%202.103-.287%201.564h-3.246v8.245C19.396%2023.238%2024%2018.179%2024%2012.044c0-6.627-5.373-12-12-12s-12%205.373-12%2012c0%205.628%203.874%2010.35%209.101%2011.647Z%22/%3E%3C/svg%3E");--s:100%}
+.s-more{--c:#3F5A63;--g:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22white%22%20stroke-width=%221.9%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M4%2012v8a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2v-8%22/%3E%3Cpolyline%20points=%2216%206%2012%202%208%206%22/%3E%3Cline%20x1=%2212%22%20y1=%222%22%20x2=%2212%22%20y2=%2215%22/%3E%3C/svg%3E")}
+
+/* A typed signature, in the handwriting the sender chose. */
+.sigt{display:block;line-height:1.15;color:var(--ink);overflow-wrap:anywhere}
+.sigf-flowing{font-family:"Mrs Saint Delafield",cursive;font-size:2.7rem;line-height:1}
+.sigf-elegant{font-family:"Great Vibes",cursive;font-size:2.1rem}
+.sigf-formal{font-family:"Allura",cursive;font-size:2.3rem}
+.sigf-brush{font-family:"Alex Brush",cursive;font-size:2.2rem}
+.sigf-friendly,.sigf-handwritten{font-family:"Dancing Script",cursive;font-weight:500;font-size:1.9rem}
+.sigf-fine{font-family:"Sacramento",cursive;font-size:2.3rem}
+.sigf-classic{font-family:"Pinyon Script",cursive;font-size:2.1rem}
+.sigf-pen{font-family:"Homemade Apple",cursive;font-size:1.35rem;line-height:1.5}
+.sign-fonts{display:grid;gap:8px;margin:2px 0 14px}
+@media (min-width:560px){.sign-fonts{grid-template-columns:1fr 1fr}}
+.sign-font{display:block;width:100%;min-height:56px;overflow:hidden;text-align:left;border:1px solid var(--rule);border-radius:3px;background:transparent;color:var(--ink);padding:8px 14px;cursor:pointer}
+.sign-font[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--tint)}

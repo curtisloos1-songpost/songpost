@@ -478,7 +478,7 @@ function paintTier(){
   });
   // What Platinum adds. The recording on the premium model is only promised while there is one to give.
   $("#plat-sub").textContent = "Everything in Gold, plus " + (site.premium ? "a second recording on our premium studio model, " : "")
-    + "your photo on their page, a lyric sheet designed to print and frame, and " + (site.premium ? "every take." : "both takes.");
+    + "your photo on their page, a lyric sheet designed to print and frame, and " + (site.premium ? "every take for you to choose from." : "a second take to choose between.");
   $("#pay-btn").textContent = "Unlock the " + TIER[tier][0] + " record for " + money(site[TIER[tier][2]]);
   $("#make-record").dataset.metal = TIER[tier][1]; // the record turns the metal they choose
 }
@@ -546,6 +546,8 @@ function showDone(info){
   $("#gift-link").value = url;
   $("#sms-link").href = "sms:?&body=" + encodeURIComponent(msg);
   $("#wa-link").href = "https://wa.me/?text=" + encodeURIComponent(msg); // opens WhatsApp with the message ready, to send to anyone
+  $("#x-link").href = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(msg);         // a public post on X, with the message ready
+  $("#fb-link").href = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(url); // a public post on Facebook, with the link
   $("#mail-link").href = "mailto:?subject=" + encodeURIComponent((info.together ? "We" : "I") + " had a song written for you") + "&body=" + encodeURIComponent(msg);
   const share = $("#share-btn"); share.hidden = !navigator.share;
   share.onclick = () => navigator.share({ text: msg }).catch(() => {});
@@ -779,7 +781,10 @@ function renderTouches(own, platinum){
   // their signature
   touchLine("#sign-box", "#sign-sum", view.signature, "Sign it", "Signed");
   $("#sign-remove").hidden = !view.signature;
-  if (!signDirty){ signStrokes = (view.signature || []).map(s => s.map(p => [p[0], p[1]])); drawSign(); }
+  if (!signDirty){
+    const typed = view.signature && !Array.isArray(view.signature) ? view.signature : null; // an older signature was a drawing
+    $("#sign-text").value = typed ? typed.text : ""; signFont = typed ? typed.font : "flowing"; paintSign();
+  }
   // their own words
   const answers = view.answers || [], shown = view.wordsShown || [], words = $("#words-box");
   words.hidden = !answers.length;
@@ -898,45 +903,28 @@ $("#voice-remove").addEventListener("click", async () => {
   voiceIdle();
 });
 
-/* ---------- the sender's signature: drawn with a finger or the mouse ---------- */
-// The pad is 600 wide and 200 high, whatever size it is shown at; the canvas has twice as many dots, so the ink is sharp.
-let signStrokes = [], signDirty = false, signNow = null, signPointer = null;
-const SIGN_STROKES = 110;
-const signCanvas = $("#sign-canvas");
-function drawSign(){
-  const g = signCanvas.getContext("2d"); g.setTransform(2, 0, 0, 2, 0, 0); g.clearRect(0, 0, 600, 200);
-  g.lineWidth = 3.4; g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = "#0E2A33";
-  signStrokes.forEach(s => {
-    g.beginPath(); g.moveTo(s[0][0], s[0][1]);
-    if (s.length === 1) g.lineTo(s[0][0] + 0.1, s[0][1]);
-    for (let i = 1; i < s.length - 1; i++) g.quadraticCurveTo(s[i][0], s[i][1], (s[i][0] + s[i + 1][0]) / 2, (s[i][1] + s[i + 1][1]) / 2);
-    if (s.length > 1) g.lineTo(s[s.length - 1][0], s[s.length - 1][1]);
-    g.stroke();
+/* ---------- the sender's signature: typed, and shown in a handwriting they choose ---------- */
+const SIG_FONTS = [["flowing", "Flowing"], ["elegant", "Elegant"], ["formal", "Formal"], ["brush", "Brush"], ["friendly", "Friendly"], ["fine", "Fine"], ["classic", "Classic"], ["pen", "Pen"]];
+let signFont = "flowing", signDirty = false, signNow = null;
+// Each choice shows the sender's own words in that handwriting, so they pick by looking.
+function paintSign(){
+  const text = $("#sign-text").value.trim() || (view && view.sender) || "Your name";
+  const box = $("#sign-fonts");
+  if (!box.children.length) SIG_FONTS.forEach(f => {
+    const b = el("button", "sign-font"); b.type = "button"; b.dataset.font = f[0]; b.setAttribute("aria-label", f[1] + " handwriting");
+    b.append(el("span", "sigt sigf-" + f[0]));
+    b.addEventListener("click", () => { signFont = f[0]; signDirty = true; paintSign(); });
+    box.append(b);
   });
+  $$(".sign-font", box).forEach(b => { b.setAttribute("aria-pressed", String(b.dataset.font === signFont)); b.firstChild.textContent = text; });
 }
-const signAt = e => { const r = signCanvas.getBoundingClientRect(); return [Math.round(Math.max(0, Math.min(600, (e.clientX - r.left) / r.width * 600))), Math.round(Math.max(0, Math.min(200, (e.clientY - r.top) / r.height * 200)))]; };
-signCanvas.addEventListener("pointerdown", e => {
-  if (e.button > 0 || signNow) return; e.preventDefault(); // a second finger, or the side of a hand, does not join in
-  $("#sign-note").textContent = ""; $("#sign-err").textContent = "";
-  if (signStrokes.length >= SIGN_STROKES){ $("#sign-err").textContent = "That is as much as the box can hold. Save it, or clear it and start again."; return; }
-  try { signCanvas.setPointerCapture(e.pointerId); } catch (x) {}
-  signPointer = e.pointerId; signNow = [signAt(e)]; signStrokes.push(signNow); signDirty = true; drawSign();
-});
-signCanvas.addEventListener("pointermove", e => {
-  if (!signNow || e.pointerId !== signPointer) return; e.preventDefault();
-  const p = signAt(e), last = signNow[signNow.length - 1];
-  if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) < 3) return; // near enough the same place
-  if (signStrokes.reduce((n, s) => n + s.length, 0) >= 5000) return;
-  signNow.push(p); drawSign();
-});
-["pointerup", "pointercancel", "pointerleave"].forEach(k => signCanvas.addEventListener(k, e => { if (e.pointerId === signPointer) signNow = null; }));
-$("#sign-clear").addEventListener("click", () => { signStrokes = []; signDirty = true; drawSign(); $("#sign-note").textContent = ""; $("#sign-err").textContent = ""; });
+$("#sign-text").addEventListener("input", () => { signDirty = true; $("#sign-note").textContent = ""; $("#sign-err").textContent = ""; paintSign(); });
 $("#sign-save").addEventListener("click", async () => {
   if (busy || !ref) return;
-  const err = $("#sign-err"), note = $("#sign-note"); err.textContent = ""; note.textContent = "";
-  if (!signStrokes.length){ err.textContent = "Sign in the box first."; return; }
+  const err = $("#sign-err"), note = $("#sign-note"), text = $("#sign-text").value.trim(); err.textContent = ""; note.textContent = "";
+  if (!text){ err.textContent = "Type your signature first."; return; }
   busy = true;
-  try { view = await call("/api/orders/" + ref.id + "/signature", { method: "POST", body: { strokes: signStrokes } }); signDirty = false; renderExtras(); $("#sign-note").textContent = "Saved. It appears under your note."; }
+  try { view = await call("/api/orders/" + ref.id + "/signature", { method: "POST", body: { text, font: signFont } }); signDirty = false; renderExtras(); $("#sign-note").textContent = "Saved. It appears under your note."; }
   catch (x) { err.textContent = x.message; }
   busy = false;
 });
@@ -959,7 +947,17 @@ function renderPlat(){
   lead.hidden = !(view.takes.length > 1 && view.status !== "generating");
   chips.textContent = ""; $("#lead-err").textContent = "";
   if (lead.hidden) return;
-  $("#lead-lede").textContent = "Every take is on " + name + "'s page. Which one plays first?";
+  $("#lead-lede").textContent = name + " gets one song. Listen to your takes here and choose the one they hear.";
+  // A player for the take that is chosen now, so the sender can compare them without leaving this page.
+  let hear = document.getElementById("lead-audio");
+  if (!hear){
+    hear = document.createElement("audio"); hear.id = "lead-audio"; hear.controls = true; hear.preload = "none";
+    hear.style.cssText = "display:block;width:100%;margin-top:12px";
+    hear.setAttribute("aria-label", "The take " + name + " will hear");
+    lead.append(hear);
+  }
+  const hearSrc = "/media/" + encodeURIComponent(view.id) + "?take=" + view.chosen;
+  if (hear.getAttribute("src") !== hearSrc){ hear.pause(); hear.setAttribute("src", hearSrc); }
   view.takes.forEach(t => {
     const b = el("button", "chip", "Take " + (t.n + 1) + (t.premium ? " (premium)" : "")); b.type = "button";
     b.setAttribute("aria-pressed", String(t.n === view.chosen));
@@ -1009,8 +1007,8 @@ function renderExtras(finished){
     box.hidden = false;
     note.textContent = view.kind === "redo"
       ? "Recording your song again. The link stays the same, and the new recording takes the place of the old one when it's done."
-      : view.kind === "premium" ? "Recording your song on our premium studio model. It plays first on " + name + "'s page when it's done, and the takes you have stay there too."
-      : "Recording the second take that comes with your Platinum record. It appears on " + name + "'s page when it's done.";
+      : view.kind === "premium" ? "Recording your song on our premium studio model. It becomes the song on " + name + "'s page when it's done. Your other takes stay here, where only you can hear them."
+      : "Recording the second take that comes with your Platinum record. When it's done you can listen to both here and choose which one " + name + " hears.";
     startProgress(view.estimateSeconds, view.elapsedSeconds, $("#extra-progress"), "recording");
     $("#make-record").classList.add("spinning");
     pollDone(); return;
@@ -1019,8 +1017,8 @@ function renderExtras(finished){
   const lines = [];
   if (finished && view.error) lines.push(view.error + (finished === "redo" ? " Your free redo has not been used." : ""));
   if (finished === "redo" && !view.error) lines.push("Your new recording is ready, on the same link.");
-  if (finished === "second" && !view.owed) lines.push("Both takes are now on " + name + "'s page.");
-  if (finished === "premium" && !view.owed && !view.error) lines.push("Your premium recording is ready, and it now plays first on " + name + "'s page.");
+  if (finished === "second" && !view.owed) lines.push("Both takes are ready. Choose below which one " + name + " hears.");
+  if (finished === "premium" && !view.owed && !view.error) lines.push("Your premium recording is ready, and it is now the song on " + name + "'s page.");
   if (view.owed){
     lines.push(view.owed === "premium" ? "Your Platinum record comes with a recording on our premium studio model, and it hasn't been recorded yet."
       : "Your Platinum record comes with a second take, and it hasn't been recorded yet.");
