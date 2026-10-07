@@ -1237,22 +1237,43 @@ init();
 
 /* ---------- Songpost on the phone's home screen ---------- */
 // The site can be kept on a phone like an app. Android offers to do it when asked; an iPhone has no such offer, so we say where to tap.
+// The "Get the app" button at the top shows on phones. On Android one tap brings up the phone's own install box. An iPhone does not
+// let a website install itself, so there the button opens three short steps, with the same symbols the person will see in their browser.
 (function keepOnPhone(){
-  const box = $("#keep-app"), btn = $("#keep-app-btn"), how = $("#keep-app-how");
+  const btn = $("#keep-app"), sheet = $("#app-how"), why = $("#app-how-why"), steps = $("#app-steps"), done = $("#app-how-done");
   const onHome = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
   if (onHome) { track("appopen"); return; }
-  if (!box || !btn || !how) return;
+  if (!btn || !sheet || !steps) return;
   const ua = navigator.userAgent || "";
   const apple = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1), android = /Android/.test(ua);
+  // Inside another app's own browser (a link opened from Facebook, Instagram and the like) an iPhone has no "Add to Home Screen" at all.
+  const inApp = apple && (/FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|Snapchat|TikTok|LinkedInApp|GSA\//.test(ua) || !/Safari\//.test(ua));
+  const draw = d => '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + d + "</svg>";
+  const SHARE = draw('<path d="M12 15V3.5"/><path d="M8 7l4-4 4 4"/><path d="M8 10.5H6.5a1.5 1.5 0 0 0-1.5 1.5v7a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-7a1.5 1.5 0 0 0-1.5-1.5H16"/>');
+  const ADD = draw('<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8.5v7M8.5 12h7"/>');
+  const MENU = draw('<circle cx="12" cy="5.5" r=".9" fill="currentColor"/><circle cx="12" cy="12" r=".9" fill="currentColor"/><circle cx="12" cy="18.5" r=".9" fill="currentColor"/>');
   let offer = null;
-  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); offer = e; box.hidden = false; });
-  window.addEventListener("appinstalled", () => { track("appinstall"); box.hidden = true; });
-  if (apple || android) box.hidden = false;
-  btn.addEventListener("click", () => {
-    if (offer) { const o = offer; offer = null; o.prompt(); return; }
-    how.textContent = apple ? "Tap the Share button in your browser, then choose \"Add to Home Screen\". Songpost then opens from its own icon, like an app."
-      : "Open your browser's menu, then choose \"Add to Home screen\" or \"Install app\". Songpost then opens from its own icon, like an app.";
-    how.hidden = false;
-  });
+  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); offer = e; btn.hidden = false; });
+  window.addEventListener("appinstalled", () => { track("appinstall"); btn.hidden = true; if (sheet.open) sheet.close(); });
+  if (apple || android) btn.hidden = false;
+  const show = () => {
+    const list = apple ? [
+      "Tap the <b>Share</b> button " + SHARE + " in your browser. If you do not see it, tap the three dots first.",
+      "Scroll down the list and tap <b>Add to Home Screen</b> " + ADD + ".",
+      "Tap <b>Add</b>. Songpost is now on your home screen, with the gold record as its icon."
+    ] : [
+      "Tap the menu " + MENU + " at the top of your browser.",
+      "Tap <b>Add to Home screen</b> or <b>Install app</b>.",
+      "Tap <b>Install</b>. Songpost is now on your home screen, with the gold record as its icon."
+    ];
+    if (inApp) list.unshift("Open this page in <b>Safari</b> first: tap the three dots or the compass, then <b>Open in Safari</b> or <b>Open in browser</b>.");
+    why.textContent = apple ? "An iPhone does not let a website download itself, so it takes a few taps. It is free and takes a few seconds."
+      : "It is free and takes a few seconds.";
+    steps.innerHTML = list.map(s => "<li><span>" + s + "</span></li>").join("");
+    if (sheet.showModal) sheet.showModal(); else sheet.setAttribute("open", "");
+  };
+  btn.addEventListener("click", () => { if (offer) { const o = offer; offer = null; o.prompt(); return; } show(); });
+  if (done) done.addEventListener("click", () => { if (sheet.close) sheet.close(); else sheet.removeAttribute("open"); });
+  sheet.addEventListener("click", e => { if (e.target === sheet && sheet.close) sheet.close(); }); // a tap outside the sheet closes it
 })();
 })();

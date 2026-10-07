@@ -26,6 +26,7 @@
 <div class="app">
   <header class="top">
     <div class="wordmark"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11.3" fill="#D3A53A" stroke="#9A7218" stroke-width="1"/><circle cx="12" cy="12" r="7" fill="#FFFFFF"/><path d="M0,-30C-25,-75 -100,-55 -100,-5C-100,45 -40,75 0,110C40,75 100,45 100,-5C100,-55 25,-75 0,-30Z" transform="translate(12 12) scale(.0504) translate(0 -18)" fill="#0E2A33"/></svg>Songpost</div>
+    <button class="get-app" type="button" id="keep-app" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10.5l5 5 5-5"/><path d="M4.5 20h15"/></svg>Get the app</button>
   </header>
 
   <main>
@@ -494,10 +495,6 @@
       </main>
 
   <footer class="foot">
-    <div class="keep-app" id="keep-app" hidden>
-      <button class="btn quiet" type="button" id="keep-app-btn">Keep Songpost on your phone</button>
-      <p id="keep-app-how" hidden></p>
-    </div>
     <p>Lyrics and music are made with AI from the details you give.</p>
     <nav class="foot-links" aria-label="Policies">
       <a href="/songs">Songs by occasion</a>
@@ -508,6 +505,12 @@
     </nav>
   </footer>
 </div>
+<dialog class="app-how" id="app-how" aria-labelledby="app-how-title">
+  <h2 id="app-how-title">Put Songpost on your home screen</h2>
+  <p class="app-how-why" id="app-how-why"></p>
+  <ol class="app-steps" id="app-steps"></ol>
+  <button class="btn primary" type="button" id="app-how-done">Got it</button>
+</dialog>
 <script src="/common.js"></script>
 <script src="/make.js"></script>
 </body>
