@@ -13,7 +13,7 @@ const { startGeneration, recoverInterrupted, owedKind, startOwedTake, resumeOwed
 const { getEngine, activeName, backupName, premiumModel, ready: engineReady, PAIR: ENGINE_PAIR, LABELS: ENGINE_LABELS } = require('./src/engines');
 const mureka = require('./src/engines/mureka');
 const { cleanJpeg, sizeProblem } = require('./src/photo');
-const { sheetHtml } = require('./src/sheet');
+const { sheetHtml, qrCardHtml, DESIGNS: SHEET_DESIGNS } = require('./src/sheet');
 const { parseSections } = require('./src/sections');
 const { cleanStrokes, wavInfo } = require('./src/touches');
 const card = require('./src/card');
@@ -942,10 +942,34 @@ app.get('/g/:id/sheet', (req, res) => {
     return res.status(404).type('html').send(framed('Songpost', "This lyric sheet isn't here.", '<p>A lyric sheet to print and frame comes with a Platinum record. The link may be mistyped, or the song has been removed.</p>'));
   }
   const t = req.query.take != null ? o.takes[parseInt(req.query.take, 10)] : null, words = shown(o);
-  res.set('Cache-Control', 'private, no-cache').type('html').send(sheetHtml({
+  // The sender arrives with the song's key and may keep a design; anyone else sees the sender's choice and can print another.
+  const given = Buffer.from(String(req.query.okey || '')), real = Buffer.from(o.key || '');
+  const asSender = given.length > 0 && given.length === real.length && crypto.timingSafeEqual(given, real);
+  const design = SHEET_DESIGNS.includes(req.query.design) ? req.query.design : SHEET_DESIGNS.includes(o.sheet_design) ? o.sheet_design : SHEET_DESIGNS[0];
+  res.set('Cache-Control', 'private, no-store').type('html').send(sheetHtml({
+    design, saveApi: asSender ? `/api/orders/${o.id}/sheet-design` : '', saveKey: asSender ? o.key : '', qr: `${giftUrl(o.id)}?q=1`,
     title: (t && t.title) || words.title, lyrics: (t && t.lyrics) || words.lyrics, recipient: o.recipient,
-    from: o.group_names || o.sender, paidAt: o.paid_at, photoUrl: photoUrl(o), backUrl: `/g/${o.id}`, signature: signatureOf(o),
+    from: o.group_names || o.sender, paidAt: o.paid_at, photoUrl: photoUrl(o), backUrl: asSender ? `/g/${o.id}?sender=1` : `/g/${o.id}`, signature: signatureOf(o),
     giftUrl: giftUrl(o.id), mailApi: `/api/gift/${o.id}/email`, canEmail: notify.live(), take: t ? parseInt(req.query.take, 10) : null }));
+});
+
+// The sender keeps a design for the lyric sheet.
+app.post('/api/orders/:id/sheet-design', wrap(async (req, res) => {
+  const o = touchable(req);
+  if (o.tier !== 'platinum') throw new PublicError('The lyric sheet comes with the Platinum record.');
+  if (!SHEET_DESIGNS.includes(req.body.design)) throw new PublicError('That design is not one of the choices.');
+  db.updateOrder(o.id, { sheet_design: req.body.design });
+  res.json({ ok: true, design: req.body.design });
+}));
+// A card to print, with a QR code that opens the song: to tuck into a card or tie to a gift. For either record.
+app.get('/g/:id/qr', (req, res) => {
+  const o = db.getOrder(req.params.id);
+  if (!o || !o.paid || o.removed) {
+    return res.status(404).type('html').send(framed('Songpost', "This card isn't here.", '<p>The link may be mistyped, or the song has been removed.</p>'));
+  }
+  try { db.addUsage('qr_card', 1, 0); } catch (e) { /* not counted */ }
+  res.set('Cache-Control', 'private, no-store').type('html').send(qrCardHtml({ recipient: o.recipient, from: o.group_names || o.sender, title: shown(o).title,
+    tier: o.tier, giftUrl: giftUrl(o.id), qr: `${giftUrl(o.id)}?q=1`, backUrl: `/g/${o.id}?sender=1` }));
 });
 
 // Some engines insist on a callback address. We poll instead.
@@ -1017,7 +1041,8 @@ const giftHtml = fs.readFileSync(path.join(__dirname, 'public', 'gift.html'), 'u
 app.get('/g/:id', (req, res) => {
   const o = db.getOrder(req.params.id);
   const live = o && o.paid && !o.removed;
-  const title = live ? `A song commissioned for ${o.recipient} by ${o.sender}` : 'Songpost';
+  if (live && req.query.q === '1') { try { db.addUsage('gift_qr_open', 1, 0); } catch (e) { /* not counted */ } }
+  const title = live ? `A song written for ${o.recipient}, from ${o.sender}` : 'Songpost';
   const desc = live ? `"${shown(o).title}" - break the seal to hear it.` : 'Turn their story or theme into a song.';
   // With a picture, a text message shows the record with their name on it and not a bare link. The address changes with
   // what is on the record, so an app that has kept an old picture asks for the new one.
@@ -1436,6 +1461,7 @@ app.get('/admin', (req, res) => {
       ${tile('Listens and saves', `${counted('gift_play')} / ${counted('gift_save')}`, 'Times a gift page played the song, and times the song was saved')}
       ${tile('Words emailed', String(counted('gift_email')), 'Times someone emailed a song\'s words to themselves')}
       ${tile('Reaction videos', String(counted('gift_reaction')), 'Videos recipients recorded for the person who sent the song')}
+      ${tile('Printed cards', `${counted('qr_card')} / ${counted('gift_qr_open')}`, 'Times a QR card was opened to print, and times a song was opened by scanning a code')}
     </div>
     <p>Worked out from the ${orders.length} most recent songs, practice unlocks included. A play is counted when someone presses play on the gift page. The sender looking at their own gift, from the device they made it on, is not counted. Listens and saves are counted from the day this report was added.</p>
     <h2>How the music engines are doing</h2>
@@ -1499,7 +1525,7 @@ app.get('/admin', (req, res) => {
   const ownSongs = orders.filter(isOwn);
   const ownRows = ownSongs.map(o => `<tr><td>${when(o.created_at)}</td><td>${esc(o.recipient)}</td><td>${esc(shown(o).title || '')}</td><td>${esc(tierName(o.tier))}</td>
     <td>${o.removed ? 'Removed' : o.first_played_at ? 'Played ' + when(o.first_played_at) : 'Not played yet'}</td>
-    <td>${o.removed ? '' : `<a href="/?order=${esc(o.id)}&amp;key=${esc(o.key)}">Finish and send</a> &middot; <a href="/g/${esc(o.id)}?sender=1">See their page</a>`}</td></tr>`).join('');
+    <td>${o.removed ? '' : `<a href="/?order=${esc(o.id)}&amp;key=${esc(o.key)}">Finish and send</a> &middot; <a href="/g/${esc(o.id)}?sender=1">See their page</a> &middot; <a href="/g/${esc(o.id)}/qr">QR card</a>`}</td></tr>`).join('');
   const own = `<h2 id="own">Send a song of your own</h2>
     <p>For a recording you made somewhere else. Upload it, and it gets the same gift page as any Songpost song: the sealed envelope, the record with their name, the words, and a way to write back. Nobody else can do this, it is not charged, and it is not counted as a sale. Use only recordings you have the right to share.</p>
     <form class="add" id="own-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 16px;max-width:900px">

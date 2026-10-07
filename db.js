@@ -82,6 +82,8 @@ addColumns('replies', ['featured INTEGER NOT NULL DEFAULT 0']);
 // A photo shown with a testimonial needs three yeses. photo_share (on the song): the buyer allows it. photo_ok (on the
 // reply): the recipient allows it. photo_featured (on the reply): the owner looked at it and chose to show it.
 addColumns('orders', ['photo_share INTEGER NOT NULL DEFAULT 0']);
+// sheet_design: the look the sender chose for the lyric sheet (see DESIGNS in sheet.js). Empty means the classic one.
+addColumns('orders', ['sheet_design TEXT']);
 addColumns('replies', ['photo_ok INTEGER NOT NULL DEFAULT 0', 'photo_featured INTEGER NOT NULL DEFAULT 0']);
 // A video the recipient recorded for the buyer. share_ok: the recipient allows Songpost to show it to others.
 db.exec(`CREATE TABLE IF NOT EXISTS reactions (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, file TEXT, mime TEXT,
@@ -110,7 +112,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY AUTOINCREMEN
 
 const COLUMNS = ['status', 'error', 'paid', 'paid_at', 'price_cents', 'stripe_session', 'title', 'lyrics', 'style', 'note',
   'takes_json', 'chosen', 'attempts', 'engine', 'gen_started_at', 'tier', 'schedule_to', 'schedule_date', 'schedule_sent_at',
-  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement', 'premium', 'photo', 'words', 'signature', 'spoken', 'photo_share'];
+  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement', 'premium', 'photo', 'words', 'signature', 'spoken', 'photo_share', 'sheet_design'];
 
 function hydrate(row) {
   if (!row) return null;

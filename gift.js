@@ -19,7 +19,7 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
 
   /* ---------- how it arrives: an envelope with their name on it, closed with a seal ---------- */
   const arrive = el("div", "arrive");
-  arrive.append(el("p", "for", "Commissioned for you by " + g.sender));
+  arrive.append(el("p", "for", "A song for you, from " + g.sender));
   const env = el("div", "env"); env.dataset.metal = metal;
   const front = el("div", "env-front");
   const nm = el("span", "env-name", g.recipient); nm.dir = "auto";
@@ -36,9 +36,9 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
 
   /* ---------- what is inside ---------- */
   const inside = el("div", "inside"); inside.hidden = true; root.append(inside);
-  inside.append(el("p", "for", "A song commissioned for"));
+  inside.append(el("p", "for", "A song written for"));
   const h1 = el("h1", null, g.recipient); h1.dir = "auto"; inside.append(h1);
-  inside.append(el("p", "by", "by " + g.sender));
+  inside.append(el("p", "by", "from " + g.sender));
   if (g.fromAll) inside.append(el("p", "from-all", "From " + g.fromAll)); // a song made together: everyone it is from
 
   const rec = el("div", "record"); rec.dataset.metal = metal; setRecord(rec, g);

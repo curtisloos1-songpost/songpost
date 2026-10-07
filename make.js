@@ -562,6 +562,7 @@ function showDone(info){
   $("#gift-link").value = url;
   $("#sms-link").href = "sms:?&body=" + encodeURIComponent(msg);
   $("#wa-link").href = "https://wa.me/?text=" + encodeURIComponent(msg); // opens WhatsApp with the message ready, to send to anyone
+  $("#qr-link").href = "/g/" + encodeURIComponent(info.id) + "/qr"; // a card to print, with a QR code that opens the song
   $("#x-link").href = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(msg);         // a public post on X, with the message ready
   $("#fb-link").href = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(url); // a public post on Facebook, with the link
   $("#mail-link").href = "mailto:?subject=" + encodeURIComponent((info.together ? "We" : "I") + " had a song written for you") + "&body=" + encodeURIComponent(msg);
@@ -968,7 +969,7 @@ function renderPlat(){
   box.hidden = !(own && view.tier === "platinum");
   if (box.hidden) return;
   const name = view.recipient || "them";
-  $("#sheet-link").href = view.sheetUrl || "#"; $("#sheet-link").hidden = !view.sheetUrl; $("#sheet-lede").hidden = !view.sheetUrl;
+  $("#sheet-link").href = view.sheetUrl ? view.sheetUrl + "?okey=" + encodeURIComponent(ref.key) : "#"; // with the key, so the design chosen there is kept $("#sheet-link").hidden = !view.sheetUrl; $("#sheet-lede").hidden = !view.sheetUrl;
   // Every take is kept, and the sender chooses the one that plays first.
   const lead = $("#lead-box"), chips = $("#lead-chips");
   lead.hidden = !(view.takes.length > 1 && view.status !== "generating");
