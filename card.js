@@ -108,4 +108,41 @@ function cardPng(o) {
   return png;
 }
 
-module.exports = { available, canDraw, cardPng, cardSvg, W, H };
+
+/* ---------- the Songpost mark, as pictures ---------- */
+// The same gold record with a heart on its white label that sits beside the name at the top of every page.
+const MARK = `<circle cx="12" cy="12" r="11.3" fill="#D3A53A" stroke="#9A7218" stroke-width="1"/><circle cx="12" cy="12" r="7" fill="#FFFFFF"/><path d="${HEART}" transform="translate(12 12) scale(.0504) translate(0 -18)" fill="#0E2A33"/>`;
+// The browser-tab icon.
+const iconSvg = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${MARK}</svg>`;
+// A square icon. Small ones are the record alone. Large ones are for a phone's home screen, which needs a filled square: the record on sea glass.
+const ICON_SIZES = [48, 180, 192, 512];
+const keptIcons = new Map();
+function iconPng(size) {
+  const t = load();
+  if (!t || !ICON_SIZES.includes(size)) return null;
+  if (keptIcons.has(size)) return keptIcons.get(size);
+  const svg = size <= 64 ? `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24">${MARK}</svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"><rect width="24" height="24" fill="#6CBCCB"/><g transform="translate(12 12) scale(.74) translate(-12 -12)">${MARK}</g></svg>`;
+  const png = new t.Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng();
+  keptIcons.set(size, png);
+  return png;
+}
+// The picture a messaging app shows when the site's own address is sent: the mark and the name on sea glass.
+let keptShare;
+function shareSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#6CBCCB"/>
+  <g fill="none" stroke="#fff" stroke-opacity=".16" stroke-width="1.5"><circle cx="600" cy="315" r="300"/><circle cx="600" cy="315" r="350"/><circle cx="600" cy="315" r="410"/><circle cx="600" cy="315" r="480"/><circle cx="600" cy="315" r="560"/></g>
+  <g transform="translate(196 198) scale(6.6)">${MARK}</g>
+  <text x="384" y="330" font-family="Cormorant Garamond" font-weight="600" font-size="176" fill="#0E2A33">Songpost</text>
+  <text x="600" y="452" text-anchor="middle" font-family="Cormorant Garamond" font-style="italic" font-weight="500" font-size="46" fill="#0E2A33">Turn their story or theme into a song</text>
+</svg>`;
+}
+function sharePng() {
+  const t = load();
+  if (!t) return null;
+  if (!keptShare) keptShare = new t.Resvg(shareSvg(), { font: { fontFiles: t.fonts, loadSystemFonts: false, defaultFontFamily: 'Cormorant Garamond' }, fitTo: { mode: 'width', value: W } }).render().asPng();
+  return keptShare;
+}
+
+module.exports = { available, canDraw, cardPng, cardSvg, W, H, iconSvg, iconPng, sharePng, shareSvg };

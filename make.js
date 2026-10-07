@@ -1234,4 +1234,25 @@ async function init(){
   }
 }
 init();
+
+/* ---------- Songpost on the phone's home screen ---------- */
+// The site can be kept on a phone like an app. Android offers to do it when asked; an iPhone has no such offer, so we say where to tap.
+(function keepOnPhone(){
+  const box = $("#keep-app"), btn = $("#keep-app-btn"), how = $("#keep-app-how");
+  const onHome = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  if (onHome) { track("appopen"); return; }
+  if (!box || !btn || !how) return;
+  const ua = navigator.userAgent || "";
+  const apple = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1), android = /Android/.test(ua);
+  let offer = null;
+  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); offer = e; box.hidden = false; });
+  window.addEventListener("appinstalled", () => { track("appinstall"); box.hidden = true; });
+  if (apple || android) box.hidden = false;
+  btn.addEventListener("click", () => {
+    if (offer) { const o = offer; offer = null; o.prompt(); return; }
+    how.textContent = apple ? "Tap the Share button in your browser, then choose \"Add to Home Screen\". Songpost then opens from its own icon, like an app."
+      : "Open your browser's menu, then choose \"Add to Home screen\" or \"Install app\". Songpost then opens from its own icon, like an app.";
+    how.hidden = false;
+  });
+})();
 })();

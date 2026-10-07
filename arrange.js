@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 const LAYOUT = {
-  'src': ['card.js', 'config.js', 'db.js', 'errors.js', 'jobs.js', 'legal.json', 'limits.js', 'lyrics.js', 'notify.js', 'occasions.json', 'page.html', 'photo.js', 'sections.js', 'sheet.js', 'touches.js'],
+  'src': ['card.js', 'config.js', 'db.js', 'errors.js', 'jobs.js', 'legal.json', 'limits.js', 'lyrics.js', 'notify.js', 'occasions.json', 'page.html', 'photo.js', 'sections.js', 'sheet.js', 'touches.js', 'vendors.js'],
   'src/engines': ['index.js', 'elevenlabs.js', 'mock.js', 'mureka.js', 'sunoapi.js'],
   'public': ['common.js', 'gift.html', 'gift.js', 'index.html', 'join.js', 'make.js', 'styles.css', 'testimonials.json'],
 };

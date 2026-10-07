@@ -399,6 +399,12 @@ module.exports = {
     db.prepare(`INSERT INTO usage (day, kind, n, amount) VALUES (?, ?, ?, ?)
       ON CONFLICT(day, kind) DO UPDATE SET n = n + excluded.n, amount = amount + excluded.amount`).run(today(), kind, n || 0, amount || 0);
   },
+  // How many messages went out since a time, and the most in any one day (email plans have a daily limit).
+  messagesSent(since) {
+    const all = db.prepare('SELECT COUNT(*) AS n FROM outbox WHERE sent_at >= ?').get(since);
+    const top = db.prepare('SELECT COUNT(*) AS n FROM outbox WHERE sent_at >= ? GROUP BY CAST(sent_at / 86400000 AS INTEGER) ORDER BY n DESC LIMIT 1').get(since);
+    return { n: all.n, busiest: top ? top.n : 0 };
+  },
   // Totals per kind since a day (YYYY-MM-DD), or for all time when no day is given.
   usageTotals(sinceDay) {
     const out = {};

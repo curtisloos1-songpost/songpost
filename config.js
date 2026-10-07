@@ -47,6 +47,8 @@ const cfg = {
   sunoapiDuration: int('SUNOAPI_DURATION', 180),
 
   anthropicKey: str('ANTHROPIC_API_KEY'),
+  // Optional. An Anthropic admin key lets the admin page show Anthropic's own bill. Organization accounts only.
+  anthropicAdminKey: str('ANTHROPIC_ADMIN_KEY'),
   anthropicModel: str('ANTHROPIC_MODEL', 'claude-sonnet-5-5'),
   // The model that checks a customer's own words against the content rules. Defaults to the lyric-writing model.
   anthropicReviewModel: str('ANTHROPIC_REVIEW_MODEL') || str('ANTHROPIC_MODEL', 'claude-sonnet-5-5'),
@@ -87,7 +89,6 @@ const cfg = {
   costClaudeOutPerMTok: num('COST_CLAUDE_OUTPUT_PER_MTOK', 10),      // Claude, dollars per million tokens written
   cardFeePercent: num('CARD_FEE_PERCENT', 2.9),                      // Stripe, percent of each sale
   cardFeeFixedCents: num('CARD_FEE_FIXED_CENTS', 30),                // Stripe, cents per sale
-  monthlyFixedCosts: num('MONTHLY_FIXED_COSTS', 14),                 // hosting and plans, dollars a month
 
   adminKey: str('ADMIN_KEY'),
   devMocks: on('DEV_MOCKS'),

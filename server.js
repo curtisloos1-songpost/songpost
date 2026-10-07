@@ -14,6 +14,7 @@ const { getEngine, activeName, backupName, premiumModel, ready: engineReady, PAI
 const mureka = require('./src/engines/mureka');
 const { cleanJpeg, sizeProblem } = require('./src/photo');
 const { sheetHtml, qrCardHtml, DESIGNS: SHEET_DESIGNS } = require('./src/sheet');
+const vendorFeeds = require('./src/vendors');
 const { parseSections } = require('./src/sections');
 const { cleanStrokes, wavInfo } = require('./src/touches');
 const card = require('./src/card');
@@ -269,7 +270,8 @@ app.get('/api/config', (req, res) => {
 // The moments we count to see where visitors drop off. "paid" is counted on the server.
 const TRACKED = ['arrived', 'started', 'lyrics', 'preview', 'clickpay'];
 // Visits that came from somewhere we want to measure: a gift page, the page where someone added to a group song, a partner's link.
-const VISITS = { fromgift: 'via_gift_visit', fromjoin: 'via_join_visit' };
+// Also counted here: Songpost being added to a phone's home screen (Android reports it; an iPhone does not), and being opened from one.
+const VISITS = { fromgift: 'via_gift_visit', fromjoin: 'via_join_visit', appinstall: 'app_install', appopen: 'app_open' };
 app.post('/api/track', (req, res) => {
   const kind = String(req.body && req.body.kind || '');
   const visit = Object.prototype.hasOwnProperty.call(VISITS, kind) ? VISITS[kind] : null;
@@ -919,6 +921,31 @@ app.get('/voice/:id', (req, res) => {
   if (!o || !o.paid || o.removed || !o.spoken) return res.status(404).end();
   res.type('audio/wav').set('Cache-Control', 'private, max-age=86400').sendFile(path.basename(o.spoken), { root: db.mediaDir });
 });
+// The Songpost mark: the browser-tab icon, the phone home-screen icon, and the picture shown when the site's own address is shared.
+app.get('/icon.svg', (req, res) => res.type('image/svg+xml').set('Cache-Control', 'public, max-age=86400').send(card.iconSvg()));
+app.get(['/icon-48.png', '/icon-180.png', '/icon-192.png', '/icon-512.png', '/favicon.ico', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png'], (req, res) => {
+  const size = /apple/.test(req.path) ? 180 : parseInt((/icon-(\d+)/.exec(req.path) || [0, 48])[1], 10);
+  let png = null;
+  try { png = card.iconPng(size); } catch (e) { console.error('The site icon could not be drawn.', e); }
+  if (!png) return res.status(404).end();
+  res.type('image/png').set('Cache-Control', 'public, max-age=86400').send(png);
+});
+// What a phone needs to keep Songpost on its home screen like an app: the name, the icon and the colours.
+app.get('/manifest.webmanifest', (req, res) => res.type('application/manifest+json').set('Cache-Control', 'public, max-age=3600').send(JSON.stringify({
+  name: 'Songpost', short_name: 'Songpost', description: 'Turn their story or theme into a song.', lang: 'en', id: '/', start_url: '/', scope: '/',
+  display: 'standalone', background_color: '#6CBCCB', theme_color: '#6CBCCB',
+  icons: [192, 512].flatMap(n => ['any', 'maskable'].map(purpose => ({ src: `/icon-${n}.png`, sizes: `${n}x${n}`, type: 'image/png', purpose }))),
+})));
+app.get('/share.png', (req, res) => {
+  let png = null;
+  try { png = card.sharePng(); } catch (e) { console.error('The share picture could not be drawn.', e); }
+  if (!png) return res.status(404).end();
+  res.type('image/png').set('Cache-Control', 'public, max-age=86400').send(png);
+});
+// What a page tells messaging apps to show with its link when it has no picture of its own.
+const SHARE_TAGS = card.available() ? [`<meta property="og:image" content="${esc(cfg.baseUrl)}/share.png?v=1">`, `<meta property="og:image:type" content="image/png">`,
+  `<meta property="og:image:width" content="${card.W}">`, `<meta property="og:image:height" content="${card.H}">`,
+  `<meta property="og:image:alt" content="The Songpost gold record beside the name Songpost">`, `<meta name="twitter:card" content="summary_large_image">`].join('\n') + '\n' : '';
 // The picture a messaging app shows with the link: the record, in its metal, with their name on it.
 app.get('/g/:id/card.png', (req, res) => {
   const o = db.getOrder(req.params.id);
@@ -1017,7 +1044,7 @@ const pageHtml = fs.readFileSync(path.join(__dirname, 'src', 'page.html'), 'utf8
 // (every other framed page asks them not to).
 const framed = (title, heading, body, opts) => (opts && opts.index ? pageHtml.replace('<meta name="robots" content="noindex">\n', '') : pageHtml)
   .replace(/\{\{TITLE\}\}/g, () => esc(title)).replace(/\{\{DESC\}\}/g, () => esc((opts && opts.desc) || heading))
-  .replace('{{HEADING}}', () => esc(heading)).replace('{{BODY}}', () => body);
+  .replace('{{SHARE}}', () => SHARE_TAGS).replace('{{HEADING}}', () => esc(heading)).replace('{{BODY}}', () => body);
 const INVITE_BODY = `<p>Songpost is being tested by invitation. If you were given an invite code, enter it to make a song.</p>
   <form id="invite"><label class="field">Invite code<input id="invite-code" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="60"></label>
   <div class="row"><button class="btn primary" type="submit">Continue</button></div><p class="err" role="alert" id="invite-err"></p></form>
@@ -1026,8 +1053,9 @@ const INVITE_BODY = `<p>Songpost is being tested by invitation. If you were give
     try { var r = await fetch('/api/access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: document.getElementById('invite-code').value }) });
       if (r.ok) { location.reload(); return; } var j = await r.json().catch(function () { return {}; }); err.textContent = j.error || 'Something went wrong. Try again.'; }
     catch (x) { err.textContent = 'You seem to be offline. Check your connection and try again.'; } });</script>`;
-app.get(['/', '/index.html'], (req, res, next) => {
-  if (hasAccess(req)) return next();
+const homeHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace('{{SHARE}}', () => SHARE_TAGS);
+app.get(['/', '/index', '/index.html'], (req, res, next) => {
+  if (hasAccess(req)) return res.type('html').send(homeHtml);
   if (req.query.code != null) { // an invite link: remember the code on this device, then drop it from the address
     if (limits.allow(req.ip, 'access', 20) && codeMatches(req.query.code)) {
       grantAccess(res);
@@ -1051,7 +1079,7 @@ app.get('/g/:id', (req, res) => {
     `<meta property="og:image" content="${esc(giftUrl(o.id))}/card.png?v=${stamp}">`, `<meta property="og:image:type" content="image/png">`,
     `<meta property="og:image:width" content="${card.W}">`, `<meta property="og:image:height" content="${card.H}">`,
     `<meta property="og:image:alt" content="${esc(`A ${o.tier === 'platinum' ? 'platinum' : 'gold'} record with the name ${o.recipient} on its label`)}">`,
-    `<meta name="twitter:card" content="summary_large_image">`].join('\n') + '\n' : '';
+    `<meta name="twitter:card" content="summary_large_image">`].join('\n') + '\n' : SHARE_TAGS;
   res.status(live ? 200 : 404).type('html').send(giftHtml.replace(/\{\{TITLE\}\}/g, () => esc(title)).replace(/\{\{DESC\}\}/g, () => esc(desc)).replace('{{OG}}', () => og));
 });
 
@@ -1312,6 +1340,55 @@ app.get('/health', (req, res) => {
   res.status(failing.length ? 503 : 200).set('Cache-Control', 'no-store').json({ ok: !failing.length, failing, services: Object.fromEntries(report.map(s => [s.key, s.state])) });
 });
 
+/* ---------- vendors: everyone the business pays, and what it costs to stay open ---------- */
+// kind: how the vendor bills. feed: where the site reads the vendor's figures from (see src/vendors.js); empty means typed in.
+const VENDOR_KINDS = { monthly: 'A fixed bill each month', yearly: 'A fixed bill each year', usage: 'Charged by use', free: 'Free' };
+const VENDOR_FEEDS = { '': 'Nowhere: I type the figure', claude: 'Anthropic (Claude)', mureka: 'Mureka', elevenlabs: 'ElevenLabs', stripe: 'Stripe', render: 'Render', email: 'The email service', domain: 'The domain registry' };
+const DEFAULT_VENDORS = [
+  { name: 'Anthropic (Claude)', what: 'Writes the lyrics, suggests the sound, and checks words and photos', kind: 'usage', feed: 'claude' },
+  { name: 'Mureka', what: 'Records the songs (main music engine)', kind: 'usage', feed: 'mureka' },
+  { name: 'ElevenLabs', what: 'Records a song when Mureka cannot (backup engine)', kind: 'monthly', feed: 'elevenlabs' },
+  { name: 'Stripe', what: 'Takes card payments', kind: 'usage', feed: 'stripe' },
+  { name: 'Render', what: 'Runs the website and stores the songs', kind: 'monthly', feed: 'render' },
+  { name: 'GitHub', what: 'Holds the website\'s code', kind: 'free', feed: '' },
+  { name: 'Email service', what: 'Sends links, receipts and reminders', kind: 'monthly', feed: 'email' },
+  { name: 'Domain name', what: 'The website\'s address', kind: 'yearly', feed: 'domain' },
+  { name: 'Suno', what: 'Songs you make yourself and upload', kind: 'monthly', feed: '' },
+  { name: 'Advertising', what: 'What you spend to bring buyers in', kind: 'monthly', feed: '' },
+];
+function vendorList() {
+  let v = null;
+  try { v = JSON.parse(db.getSetting('vendors') || 'null'); } catch (e) { /* start again from the usual list */ }
+  if (!Array.isArray(v)) v = DEFAULT_VENDORS.map((x, i) => Object.assign({ id: 'v' + (i + 1), amount: null, renews: '', note: '' }, x));
+  return v;
+}
+const saveVendors = list => db.setSetting('vendors', JSON.stringify(list.slice(0, 60)));
+const vendorsPage = () => '/admin?key=' + encodeURIComponent(cfg.adminKey) + '#vendors';
+app.post('/admin/vendor', (req, res) => {
+  if (!adminOk(req)) return res.status(404).end();
+  const list = vendorList(), b = req.body, id = label(b.id, 20), name = label(b.name, 60);
+  const typed = String(b.amount == null ? '' : b.amount).replace(/[$,\s]/g, ''), amount = typed === '' ? NaN : Number(typed);
+  const row = { name, what: label(b.what, 160), kind: VENDOR_KINDS[b.kind] ? b.kind : 'monthly', feed: VENDOR_FEEDS[b.feed] != null ? b.feed : '',
+    amount: Number.isFinite(amount) && amount >= 0 ? Math.round(Math.min(1e6, amount) * 100) / 100 : null, renews: /^\d{4}-\d{2}-\d{2}$/.test(String(b.renews || '')) ? b.renews : '', note: label(b.note, 200) };
+  if (name) {
+    const at = list.findIndex(v => v.id === id);
+    if (at >= 0) list[at] = Object.assign({ id }, row); else list.push(Object.assign({ id: 'v' + newId(4) }, row));
+    saveVendors(list);
+  }
+  res.redirect(vendorsPage());
+});
+app.post('/admin/vendor-remove', (req, res) => {
+  if (!adminOk(req)) return res.status(404).end();
+  saveVendors(vendorList().filter(v => v.id !== String(req.body.id || '')));
+  res.redirect(vendorsPage());
+});
+// Reads every vendor again now, rather than waiting for the next check. Gives up waiting after half a minute; the check itself carries on.
+app.post('/admin/vendors-refresh', async (req, res) => {
+  if (!adminOk(req)) return res.status(404).end();
+  await Promise.race([vendorFeeds.refresh().catch(e => console.error('Vendor check crashed:', e)), new Promise(ok => setTimeout(ok, 30000))]);
+  res.redirect(vendorsPage());
+});
+
 // Costs and earnings for the admin page, worked out from what the site has counted and the prices in the settings.
 function money(sinceDay) {
   const u = db.usageTotals(sinceDay), get = k => u[k] || { n: 0, amount: 0 };
@@ -1323,7 +1400,8 @@ function money(sinceDay) {
   const sales = get('sale').n, revenue = get('sale').amount / 100;
   const fees = revenue * cfg.cardFeePercent / 100 + sales * cfg.cardFeeFixedCents / 100;
   const started = get('song_started').n, practice = get('sale_practice').n;
-  return { started, recordings, minutes, music, claudeCalls: get('claude_in').n, claude, sales, revenue, fees, practice,
+  const musicEleven = Math.max(0, minutes - get('rec_flat').amount / 60) * cfg.costMusicPerMinute, musicMureka = get('rec_flat_usd').amount;
+  return { started, recordings, minutes, music, musicEleven, musicMureka, claudeCalls: get('claude_in').n, claude, sales, revenue, fees, practice,
     costs: music + claude + fees, left: revenue - music - claude - fees,
     perStarted: started ? (music + claude) / started : null, perSale: sales ? (music + claude + fees) / sales : null,
     buyRate: started ? (sales + practice) / started : null };
@@ -1338,9 +1416,77 @@ app.get('/admin', (req, res) => {
   const m30 = periods[2][1], usd = x => (x < 0 ? '-' : '') + '$' + Math.abs(x).toFixed(2), opt = (x, fn) => (x == null ? 'n/a' : fn(x));
   const moneyRow = (label, fn) => `<tr><td>${label}</td>${periods.map(([, m]) => `<td class="num">${fn(m)}</td>`).join('')}</tr>`;
   const tile = (label, value, note) => `<div class="tile"><div class="t-label">${label}</div><div class="t-value">${value}</div><div class="t-note">${note}</div></div>`;
+  // Vendors and running costs. One figure per vendor: its fixed bill for a month, or the last 30 days of what it charges by use.
+  // A figure you typed wins; then the vendor's own figure; then the site's own count.
+  const vendors = vendorList(), vLive = vendorFeeds.live(), mEver = periods[3][1];
+  const siteCount = { claude: m30.claude, mureka: m30.musicMureka, elevenlabs: m30.musicEleven, stripe: m30.fees };
+  const isFixed = v => v.kind === 'monthly' || v.kind === 'yearly';
+  const niceDay = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  const figures = vendors.map(v => {
+    const f = (v.feed && vLive.feeds[v.feed]) || {};
+    const out = { cost: null, from: 'No figure yet', says: f.says || '', err: f.err || '', alerts: f.alerts || [], renews: v.renews || f.renews || '' };
+    if (v.kind === 'free') { out.cost = 0; out.from = 'Free'; }
+    else if (v.amount != null) { out.cost = v.kind === 'yearly' ? v.amount / 12 : v.amount; out.from = v.kind === 'yearly' ? `You typed ${usd(v.amount)} a year` : 'You typed this'; }
+    else if (v.kind === 'usage') {
+      if (f.used30 != null) { out.cost = f.used30; out.from = f.usedFrom; if (siteCount[v.feed] != null) out.says += ` The site's own count: ${usd(siteCount[v.feed])}.`; }
+      else if (siteCount[v.feed] != null) { out.cost = siteCount[v.feed]; out.from = 'Counted by the site'; }
+    } else if (f.monthly != null) { out.cost = f.monthly; out.from = f.monthlyFrom; }
+    return out;
+  });
+  const vSum = pick => vendors.reduce((t, v, i) => t + (pick(v) && figures[i].cost != null ? figures[i].cost : 0), 0);
+  const fixed = vSum(isFixed), byUse = vSum(v => v.kind === 'usage'), runCost = fixed + byUse;
+  // What one sale leaves after the costs it causes. A music engine paid as a fixed bill is not siteCount a second time here.
+  const elevenFixed = vendors.some(v => v.feed === 'elevenlabs' && isFixed(v));
+  const perUse = m => m.claude + m.musicMureka + (elevenFixed ? 0 : m.musicEleven);
+  const goldPrice = cfg.priceGoldCents / 100, goldFee = goldPrice * cfg.cardFeePercent / 100 + cfg.cardFeeFixedCents / 100, unlocksEver = mEver.sales + mEver.practice;
+  const margin = mEver.sales ? (mEver.revenue - mEver.fees - perUse(mEver)) / mEver.sales : goldPrice - goldFee - (unlocksEver ? perUse(mEver) / unlocksEver : 0);
+  const breakEven = fixed > 0 && margin > 0 ? Math.ceil(fixed / margin) : null;
+  const attention = new Set();
+  vendors.forEach((v, i) => {
+    const f = figures[i];
+    for (const a of f.alerts) attention.add(esc(a));
+    if (f.err) attention.add(`${esc(f.err)} ${f.says ? 'The figures shown for it are from the last time it could be read.' : ''}`);
+    if (f.cost == null) attention.add(`<b>${esc(v.name)}</b> has no figure, and there is nowhere for the site to read one. Press "Change" on its row and type what you pay. Type 0 if you pay nothing.`);
+    if (f.renews && (v.kind === 'yearly' || v.renews) && (new Date(f.renews + 'T00:00:00Z') - Date.now()) / DAY <= 30) attention.add(`${esc(v.name)} renews on ${niceDay(f.renews)}.`);
+  });
+  const fld = 'font:inherit;padding:5px 7px;width:100%;box-sizing:border-box;margin:2px 0 8px';
+  const pickFrom = (name, all, now) => `<select name="${name}" style="${fld}">${Object.keys(all).map(k => `<option value="${k}"${k === now ? ' selected' : ''}>${all[k]}</option>`).join('')}</select>`;
+  const vendorForm = (v, button) => `<form method="post" action="/admin/vendor" style="max-width:340px;padding:8px 0"><input type="hidden" name="key" value="${key}"><input type="hidden" name="id" value="${esc(v.id)}">
+        <label>Vendor<input name="name" value="${esc(v.name)}" maxlength="60" required style="${fld}"></label>
+        <label>What it does<input name="what" value="${esc(v.what || '')}" maxlength="160" style="${fld}"></label>
+        <label>How it bills${pickFrom('kind', VENDOR_KINDS, v.kind)}</label>
+        <label>The site reads its figures from${pickFrom('feed', VENDOR_FEEDS, v.feed || '')}</label>
+        <label>Your own figure, in dollars<input name="amount" value="${v.amount == null ? '' : v.amount}" inputmode="decimal" style="${fld}"></label>
+        <div class="t-note" style="margin:-4px 0 8px">Leave it empty and the site fills it in wherever it can. A figure typed here is used instead of the site's.</div>
+        <label>Renews on<input name="renews" type="date" value="${esc(v.renews || '')}" style="${fld}"></label>
+        <label>Note<input name="note" value="${esc(v.note || '')}" maxlength="200" placeholder="Plan, login email" style="${fld}"></label>
+        <div class="t-note" style="margin:-4px 0 8px">Never a password or a card number.</div>
+        <button>${button}</button></form>`;
+  const vendorsHtml = `<h2 id="vendors">Vendors and running costs</h2>
+    <p>Everyone the business pays, and what it costs to stay open. The site fills this in by itself: it reads the bill from each vendor that has one to read, counts its own use of the rest, and works out Render's price from the plan. You type a figure only where there is nothing to read, such as advertising.</p>
+    <div class="tiles">
+      ${tile('Cost to run, last 30 days', usd(runCost), `${usd(fixed)} in fixed bills and ${usd(byUse)} charged by use`)}
+      ${tile('Left after every cost, last 30 days', usd(m30.revenue - runCost), `${usd(m30.revenue)} taken in, less ${usd(runCost)} to run`)}
+      ${tile('Each sale leaves', usd(margin), `After the music, lyrics and card fee it causes${mEver.sales ? '' : '. Estimated from the Gold price until there are real sales'}`)}
+      ${tile('Sales a month to break even', breakEven == null ? 'n/a' : String(breakEven), fixed <= 0 ? 'There are no fixed bills to cover yet' : margin <= 0 ? 'A sale does not yet cover its own costs' : `Enough to cover ${usd(fixed)} of fixed bills`)}
+    </div>
+    <h3>Needs your attention</h3>
+    ${attention.size ? `<ul>${[...attention].map(a => `<li>${a}</li>`).join('')}</ul>` : '<p>Nothing right now.</p>'}
+    <div class="wrap"><table><tr><th>Vendor</th><th class="num">Cost for a month</th><th>Where the figure comes from</th><th></th></tr>
+      ${vendors.map((v, i) => { const f = figures[i]; return `<tr><td><b>${esc(v.name)}</b>${v.what ? `<br><span class="t-note">${esc(v.what)}</span>` : ''}</td>
+        <td class="num">${f.cost == null ? '<b>Not known</b>' : usd(f.cost)}</td>
+        <td>${esc(f.from)}${f.says ? `<br><span class="t-note">${esc(f.says)}</span>` : ''}${v.renews ? `<br><span class="t-note">Renews on ${niceDay(v.renews)}.</span>` : ''}${v.note ? `<br><span class="t-note">Your note: ${esc(v.note)}</span>` : ''}${f.err ? `<br><b>${esc(f.err)}</b>` : ''}</td>
+        <td><details><summary>Change</summary>${vendorForm(v, 'Save')}
+          <form method="post" action="/admin/vendor-remove"><input type="hidden" name="key" value="${key}"><input type="hidden" name="id" value="${esc(v.id)}"><button>Remove ${esc(v.name)}</button></form></details></td></tr>`; }).join('')}
+      <tr><td><b>All vendors</b></td><td class="num"><b>${usd(runCost)}</b></td><td>Fixed bills for a month, plus the last 30 days of everything charged by use</td><td></td></tr>
+    </table></div>
+    <details><summary>Add a vendor</summary><p class="t-note">Anyone else you pay: a lawyer, an accountant, a designer, insurance.</p>${vendorForm({ id: '', name: '', what: '', kind: 'monthly', feed: '', amount: null, renews: '', note: '' }, 'Add vendor')}</details>
+    <form method="post" action="/admin/vendors-refresh" style="margin:14px 0"><input type="hidden" name="key" value="${key}">
+      <span class="t-note">${vLive.at ? `The vendors were last read on ${when(vLive.at)} UTC.` : 'The vendors have not been read yet.'} The site reads them again every 6 hours.</span> <button>Read them again now</button></form>
+    <p class="t-note">Anthropic's own bill can be read only with an Anthropic admin key, which organization accounts can make. Save it in Render as ANTHROPIC_ADMIN_KEY. Without it the site's own count of Claude requests is used, which is close.</p>`;
   const costs = `<h2>Costs and earnings</h2>
     <div class="hero"><div class="t-label">Left after costs, last 30 days</div><div class="hero-value">${usd(m30.left)}</div>
-      <div class="t-note">${usd(m30.revenue)} taken in, less ${usd(m30.costs)} for music, lyrics and card fees. Before the fixed costs of about ${usd(cfg.monthlyFixedCosts)} a month.</div></div>
+      <div class="t-note">${usd(m30.revenue)} taken in, less ${usd(m30.costs)} for music, lyrics and card fees. Before fixed bills: those are under <a href="#vendors">Vendors and running costs</a>.</div></div>
     <div class="tiles">
       ${tile('Music and lyrics, last 30 days', usd(m30.music + m30.claude), `${m30.recordings} recordings, ${m30.minutes.toFixed(1)} minutes of music`)}
       ${tile('Cost per song started', opt(m30.perStarted, usd), 'Music and lyrics, whether or not it sold')}
@@ -1361,7 +1507,7 @@ app.get('/admin', (req, res) => {
       ${moneyRow('Practice unlocks (no money)', m => m.practice)}
     </table></div>
     <p>These are estimates: what the site counted, times the list prices in the settings ($${cfg.costMusicPerMinute} a minute of ElevenLabs music, Mureka's price for each song it records, $${cfg.costClaudeInPerMTok} and $${cfg.costClaudeOutPerMTok} per million Claude tokens, ${cfg.cardFeePercent}% plus ${cfg.cardFeeFixedCents}¢ a sale).
-      Check them against your ElevenLabs, Claude and Stripe accounts now and then. Refunds, advertising and the fixed monthly costs are not included.
+      Check them against your ElevenLabs, Claude and Stripe accounts now and then. Refunds are not included. Fixed bills and advertising are in the next section, Vendors and running costs.
       Counting began on ${esc(db.firstUsageDay() || 'the first song after this version went live')}; anything before that is not in these figures.</p>`;
   // How songs spread: from person to person, from partners, and what buyers say brought them.
   const d30 = dayAgo(29), u30 = db.usageTotals(d30), uAll = db.usageTotals(null);
@@ -1462,6 +1608,7 @@ app.get('/admin', (req, res) => {
       ${tile('Words emailed', String(counted('gift_email')), 'Times someone emailed a song\'s words to themselves')}
       ${tile('Reaction videos', String(counted('gift_reaction')), 'Videos recipients recorded for the person who sent the song')}
       ${tile('Printed cards', `${counted('qr_card')} / ${counted('gift_qr_open')}`, 'Times a QR card was opened to print, and times a song was opened by scanning a code')}
+      ${tile('On phone home screens', `${counted('app_install')} / ${counted('app_open')}`, 'Times Songpost was added to a home screen (Android only: iPhones do not report it), and visits opened from one')}
     </div>
     <p>Worked out from the ${orders.length} most recent songs, practice unlocks included. A play is counted when someone presses play on the gift page. The sender looking at their own gift, from the device they made it on, is not counted. Listens and saves are counted from the day this report was added.</p>
     <h2>How the music engines are doing</h2>
@@ -1572,7 +1719,7 @@ app.get('/admin', (req, res) => {
     })();</script>`;
   const reports = db.listReports().map(r => `<tr><td>${when(r.at)}</td><td><a href="/g/${esc(r.order_id)}">${esc(r.order_id)}</a></td><td>${esc(r.body)}</td></tr>`).join('');
   const outbox = db.listOutbox().map(m => `<tr><td>${when(m.created_at)}</td><td>${esc(m.to_contact)}</td><td>${esc(m.subject)}</td><td><pre>${esc(m.body)}</pre></td><td>${m.sent_at ? 'Sent' : m.failed_at ? (m.attempts ? 'Failed after ' + m.attempts + ' tries' : 'Not sent: texts are not connected') : m.attempts ? 'Will try again (' + m.attempts + ' so far)' : 'Not sent'}</td></tr>`).join('');
-  res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Songpost admin</title>
+  res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Songpost admin</title><link rel="icon" href="/icon.svg" type="image/svg+xml">
     <style>body{font:15px system-ui;margin:24px}table{border-collapse:collapse;width:100%;margin-bottom:28px}td,th{border-bottom:1px solid #ccd;padding:6px 10px;text-align:left;vertical-align:top}.wrap{overflow-x:auto}pre{margin:0;white-space:pre-wrap;font:inherit}h2{margin-top:32px}
     .num{text-align:right;font-variant-numeric:tabular-nums}.money td:first-child{width:38%}
     .hero{margin:6px 0 18px}.hero-value{font-size:52px;font-weight:600;line-height:1.1}
@@ -1592,6 +1739,7 @@ app.get('/admin', (req, res) => {
     </table></div>
     <p>This shows what happened the last time each service was used. To be told when something breaks, point a free uptime monitor at <b>${esc(cfg.baseUrl)}/health</b>: it answers "ok" while everything works and an error when a service has failed three times in a row.</p>
     ${costs}
+    ${vendorsHtml}
     ${spread}
     <h2>Where visitors drop off (last 30 days)</h2><div class="wrap"><table><tr><th>Step</th><th>People</th></tr>${funnel}</table></div>
     ${insights}
@@ -1696,6 +1844,7 @@ setInterval(sendDue, 60 * 1000).unref();
 setInterval(sendReminders, 15 * 60 * 1000).unref();
 setInterval(() => notify.retryPending().catch(e => console.error('Message retry crashed:', e)), 60 * 1000).unref();
 setInterval(cleanUp, 6 * 3600 * 1000).unref();
+vendorFeeds.start(); // reads each vendor's own figures for the admin page, now and every few hours
 
 recoverInterrupted();
 resumeOwed(); // a premium recording that a restart interrupted, or that was never started, is made now

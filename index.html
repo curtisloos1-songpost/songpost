@@ -7,9 +7,19 @@
 <meta name="description" content="Tell us about someone you love. We write and record a song about them, and you send it in minutes.">
 <meta property="og:title" content="Songpost: turn their story or theme into a song">
 <meta property="og:description" content="Tell us about someone you love. We write and record a song about them, and you send it in minutes.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
+{{SHARE}}<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Jost:wght@400;500&family=Mrs+Saint+Delafield&family=Great+Vibes&family=Allura&family=Alex+Brush&family=Dancing+Script:wght@500&family=Sacramento&family=Pinyon+Script&family=Homemade+Apple&display=swap" rel="stylesheet">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="theme-color" content="#6CBCCB" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D3841" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Songpost">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -484,6 +494,10 @@
       </main>
 
   <footer class="foot">
+    <div class="keep-app" id="keep-app" hidden>
+      <button class="btn quiet" type="button" id="keep-app-btn">Keep Songpost on your phone</button>
+      <p id="keep-app-how" hidden></p>
+    </div>
     <p>Lyrics and music are made with AI from the details you give.</p>
     <nav class="foot-links" aria-label="Policies">
       <a href="/songs">Songs by occasion</a>

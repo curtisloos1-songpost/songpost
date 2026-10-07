@@ -263,6 +263,8 @@ function sheetHtml(s) {
   return `<!doctype html>
 <html lang="en">
 <head>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(s.title || 'Lyric sheet')} - lyric sheet</title>
@@ -448,6 +450,8 @@ function qrCardHtml(s) {
   return `<!doctype html>
 <html lang="en">
 <head>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A card for ${esc(s.recipient)}'s song</title>
