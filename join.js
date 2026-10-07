@@ -66,7 +66,8 @@ function render(v, editing){
   title("Add your memories to " + them + "'s song");
   root.append(el("p", "lede", who + " is making a song for " + them + " and would love your memories in it."));
   root.append(el("p", "lead-in", "Answer as many as you like. A sentence each is plenty. " + who + " sees what you write, and the song is written from everyone's answers together."));
-  const mine = v.mine || { name: "", relationship: v.relationship || "", answers: [], contact: "" };
+  // A new invitation starts empty: nothing is answered for the person. Only what they wrote themselves comes back when they return.
+  const mine = v.mine || { name: "", relationship: "", answers: [], contact: "" };
   const field = (label, hint, input) => { const l = el("label", "field", label); if (hint) l.append(el("span", "hint", hint)); l.append(input); return l; };
   const name = el("input"); name.maxLength = 24; name.autocomplete = "given-name"; name.value = mine.name;
   const rel = el("input"); rel.maxLength = 40; rel.autocomplete = "off"; rel.placeholder = "mom, dad, best friend"; rel.value = mine.relationship;
