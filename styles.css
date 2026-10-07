@@ -79,9 +79,11 @@ button,input,textarea{font:inherit;color:inherit}
 .rec-stage:has(.record.spinning) .rings .hb{animation:none}
 @keyframes beat{0%,30%,100%{transform:scale(1)}10%{transform:scale(1.03)}20%{transform:scale(1.008)}}
 @keyframes spread{to{transform:scale(calc(var(--k)*1.15));opacity:var(--o2)}}
-.record{position:relative;width:var(--rec);aspect-ratio:1;border-radius:50%;filter:drop-shadow(0 calc(var(--rec)*.05) calc(var(--rec)*.08) var(--shadow))}
+.record{position:relative;width:var(--rec);height:var(--rec);aspect-ratio:1;border-radius:50%;filter:drop-shadow(0 calc(var(--rec)*.05) calc(var(--rec)*.08) var(--shadow))}
 .record > svg{display:block;width:100%;height:100%}
-.record::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
+/* The size is given outright, for the record and for its shine. iPhones were keeping the old height when the record changed size
+   between the opening page and the steps, which left the shine as a tall oval sticking out above and below the record. */
+.record::after{content:"";position:absolute;left:0;top:0;width:var(--rec);height:var(--rec);border-radius:50%;pointer-events:none;
   background:conic-gradient(from 18deg,var(--shine) 0deg,transparent 32deg,var(--shade) 82deg,transparent 128deg,var(--shine) 182deg,transparent 216deg,var(--shade) 272deg,transparent 324deg,var(--shine) 360deg);
   /* the shine lies on the outer band of the record only: it starts outside the label and stops just inside the record's own edge,
      so none of it shows as a pale rim on the page behind */
