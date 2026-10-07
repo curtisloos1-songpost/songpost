@@ -44,6 +44,7 @@ let step = -1, tier = "song", pollTimer = null, doneTimer = null, heardTimer = n
 // Today's date where the customer is, as YYYY-MM-DD.
 const localToday = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
+const calmMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 const load = k => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } };
 const save = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 let saveTimer = null;
@@ -174,7 +175,7 @@ if (typeof Recognition === "function"){
   stopListening = stop;
   $$('textarea[data-bind^="a"]').forEach(area => {
     const label = area.closest(".field"); label.classList.add("has-after");
-    const row = el("div", "after-field"), btn = el("button", "btn small", "Speak your answer"), said = el("span", "hint");
+    const row = el("div", "after-field"), btn = el("button", "btn small ico ico-mic", "Speak your answer"), said = el("span", "hint");
     btn.type = "button"; btn.setAttribute("aria-pressed", "false"); said.setAttribute("role", "status");
     row.append(btn, said); label.after(row);
     btn.addEventListener("click", () => {
@@ -609,18 +610,27 @@ function showDone(info){
 
 /* ---------- what happened on their page: the first play, and anything they wrote back ---------- */
 function renderHeard(){
-  const box = $("#heard-box"), note = $("#heard-note"), list = $("#replies");
+  const box = $("#heard-box"), note = $("#heard-note"), list = $("#replies"), tapBox = $("#heard-taps");
   const mine = !!(ref && view && view.id === ref.id && view.paid);
   box.hidden = !mine; if (!mine) return;
-  const name = view.recipient || "They", replies = view.replies || [];
-  note.textContent = view.firstPlayedAt ? name + " first played it on " + longDate(view.firstPlayedAt) + "."
-    : name + " hasn't played it yet. This page shows when they do, and anything they write or record back.";
-  const vids = view.reactions || [], sig = replies.length + "|" + vids.map(v => v.id).join(",");
+  const name = view.recipient || "They", replies = view.replies || [], taps = view.taps || [], vids = view.reactions || [];
+  const any = !!view.firstPlayedAt || replies.length || taps.length || vids.length;
+  // Once something has come back, it leads the page: it is what the sender came to see.
+  box.classList.toggle("love", !!any);
+  const home = any ? $("#done-plate").parentElement : $("#heard-q");
+  if (any){ if (box.previousElementSibling !== home) home.after(box); } else if (box.nextElementSibling !== home) home.before(box);
+  $("#done-h").textContent = replies.length ? name + " wrote back." : vids.length ? name + " sent you a video." : taps.length ? name + " sent you " + tapCounts(taps).map(t => t[0]).slice(0, 3).join(" ") : any ? name + " played it." : "It's ready to send.";
+  note.textContent = view.firstPlayedAt ? "First played " + longDate(view.firstPlayedAt)
+    : any ? "" : name + " hasn't played it yet. This page shows when they do, and anything they send back.";
+  const tsig = taps.length;
+  if (tapBox.dataset.sig !== String(tsig)){
+    tapBox.dataset.sig = String(tsig); tapBox.textContent = ""; tapBox.hidden = !taps.length;
+    tapCounts(taps).forEach(t => { const c = el("span", "love-tap", t[0]); if (t[1] > 1) c.append(el("b", null, String(t[1]))); tapBox.append(c); });
+  }
+  const sig = replies.length + "|" + vids.map(v => v.id).join(",");
   if (list.dataset.sig !== sig){
     list.dataset.sig = sig; list.textContent = "";
-    if (replies.length) list.append(el("h3", null, name + " wrote back"));
     replies.forEach(r => list.append(el("blockquote", "reply-in", r.body), el("p", "status-line", longDate(r.at))));
-    if (vids.length) list.append(el("h3", null, name + " sent you a video"));
     vids.forEach(v => {
       const vid = el("video", "reply-vid"); vid.controls = true; vid.preload = "metadata"; vid.playsInline = true; vid.setAttribute("playsinline", ""); vid.src = v.url;
       list.append(vid, el("p", "status-line", longDate(v.at) + ". Only you can see this."));
@@ -629,6 +639,10 @@ function renderHeard(){
   // Kindness travelling on: songs since started from this one's page, or by the people who helped make it.
   const n = view.passedOn || 0;
   $("#passed-note").textContent = n ? "Kindness travels: " + (n === 1 ? "one new song has" : n + " new songs have") + " been started because of this one." : "";
+  // Anything new since this device last looked gets its moment, then counts as seen.
+  const news = newsOf(view);
+  if (news){ markSeen(view.id, view); peeked[view.id] = Object.assign(peeked[view.id] || {}, { firstPlayedAt: view.firstPlayedAt, taps, replies: replies.length, videos: vids.length }); setTimeout(() => burst(box, news.taps.length ? news.taps : ["❤️"], 10), 350); }
+  else if (!seenOf(view.id)) markSeen(view.id, view);
 }
 
 /* ---------- one question after unlocking: how they heard about us ---------- */
@@ -745,21 +759,122 @@ $("#tg-copy").addEventListener("click", async e => {
   setTimeout(() => { b.textContent = "Copy link"; }, 1800);
 });
 
-/* ---------- the songs made on this device, listed on the opening page ---------- */
-function renderYours(){
-  const songs = (load(SONGS_KEY) || []).filter(s => s && s.id && s.key), list = $("#yours-list");
-  list.textContent = ""; $("#yours").hidden = !songs.length;
-  songs.slice().reverse().forEach(s => {
-    const b = el("button", "btn quiet", (s.recipient ? "For " + s.recipient : "Your song") + (s.title ? ": " + s.title : "")); b.type = "button";
-    b.addEventListener("click", async () => {
-      if (busy) return; busy = true;
-      try { ref = { id: s.id, key: s.key }; view = await call("/api/orders/" + s.id); save(ORDER_KEY, ref); busy = false; showDone(view); return; }
-      catch (e) { ref = null; view = null; save(SONGS_KEY, (load(SONGS_KEY) || []).filter(x => x && x.id !== s.id)); renderYours(); } // the song is gone
-      busy = false;
+/* ---------- your songs: every song sent from this device, by person, and what came back ---------- */
+// Nothing here needs an account. The device remembers each song and its private key; one request asks the site how
+// they are all doing. What has been seen is remembered too, so something new can be shown as new, once.
+const SEEN_KEY = "songpost-seen-v1";
+let peeked = {};                 // id -> what the site last said about that song
+const cheered = {};              // songs whose news has already had its small celebration on this visit
+const ICON = {
+  sealed: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 8l8.5 6 8.5-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  played: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 8.4v7.2l6-3.6z" fill="currentColor"/></svg>',
+  words: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.6a7.6 7.6 0 0 1-11 6.8L4 20l1.6-4.6A7.6 7.6 0 1 1 20 11.6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+  video: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6.5" width="12" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15 10.5l5.5-3v9l-5.5-3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+  go: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5l6.5 6.5L9 18.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+};
+const shortDate = ms => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const seenOf = id => (load(SEEN_KEY) || {})[id] || null;
+const countsOf = p => ({ played: !!p.firstPlayedAt, replies: Array.isArray(p.replies) ? p.replies.length : p.replies || 0, taps: (p.taps || []).length, videos: Array.isArray(p.reactions) ? p.reactions.length : p.videos || 0 });
+function markSeen(id, p){ const all = load(SEEN_KEY) || {}; all[id] = countsOf(p); save(SEEN_KEY, all); }
+// What is new on a song since this device last looked: { played, replies, taps: [emoji], videos }, or null.
+function newsOf(p){
+  const now = countsOf(p), was = seenOf(p.id) || { played: false, replies: 0, taps: 0, videos: 0 };
+  const taps = (p.taps || []).slice(was.taps).map(t => t.emoji);
+  const news = { played: now.played && !was.played, replies: Math.max(0, now.replies - was.replies), taps, videos: Math.max(0, now.videos - was.videos) };
+  return news.played || news.replies || news.taps.length || news.videos ? news : null;
+}
+const newsLine = (name, n) => n.taps.length ? name + " sent you " + n.taps.slice(0, 4).join(" ") : n.replies ? name + " wrote back" : n.videos ? name + " sent you a video" : name + " played your song";
+async function openSong(s){
+  if (busy) return; busy = true;
+  try { ref = { id: s.id, key: s.key }; view = await call("/api/orders/" + s.id); save(ORDER_KEY, ref); busy = false; showDone(view); window.scrollTo(0, 0); return; }
+  catch (e) { ref = null; view = null; save(SONGS_KEY, (load(SONGS_KEY) || []).filter(x => x && x.id !== s.id)); renderYours(); } // the song is gone
+  busy = false;
+}
+function drawYours(songs){
+  const list = $("#yours-list"); list.textContent = "";
+  const full = songs.map(s => Object.assign({}, s, peeked[s.id] || {}));
+  const lastAt = p => Math.max(p.paidAt || 0, p.firstPlayedAt || 0, p.lastReply ? p.lastReply.at : 0, (p.taps || []).length ? p.taps[p.taps.length - 1].at : 0);
+  // By person: everyone a song was sent to, the one with the latest news first.
+  const people = [], byName = {};
+  full.forEach((p, i) => { const k = (p.recipient || "").trim().toLowerCase() || "song-" + i; if (!byName[k]){ byName[k] = { name: p.recipient || "", songs: [] }; people.push(byName[k]); } byName[k].songs.push(p); });
+  people.forEach(g => { g.songs.sort((a, b) => lastAt(b) - lastAt(a) || songs.indexOf(b) - songs.indexOf(a)); g.at = Math.max.apply(null, g.songs.map(lastAt)); });
+  people.sort((a, b) => b.at - a.at || songs.findIndex(s => s.id === b.songs[0].id) - songs.findIndex(s => s.id === a.songs[0].id));
+  let fresh = 0, firstNews = "";
+  people.forEach(g => {
+    const group = el("div", "person");
+    if (g.songs.length > 1) group.append(el("p", "person-h", (g.name || "Your songs") + " • " + g.songs.length + " songs"));
+    g.songs.forEach(p => {
+      const card = el("button", "song-card"); card.type = "button"; card.dataset.id = p.id;
+      const rec = el("div", "record"); rec.dataset.metal = p.tier === "platinum" ? "platinum" : "gold";
+      const body = el("div", "sc-body");
+      body.append(el("span", "sc-name", p.recipient ? "For " + p.recipient : "Your song"));
+      if (p.title) body.append(el("span", "sc-title", p.title));
+      const stat = el("div", "sc-stat");
+      const bit = (icon, text, cls) => { const b = el("span", "sc-bit" + (cls ? " " + cls : "")); b.innerHTML = icon || ""; b.append(document.createTextNode(text)); stat.append(b); };
+      if (peeked[p.id]){
+        if (p.firstPlayedAt) bit(ICON.played, "Played " + shortDate(p.firstPlayedAt)); else bit(ICON.sealed, "Not opened yet", "quiet");
+        tapCounts(p.taps).forEach(t => bit("", t[0] + (t[1] > 1 ? " " + t[1] : ""), "emo"));
+        if (p.replies) bit(ICON.words, String(p.replies));
+        if (p.videos) bit(ICON.video, String(p.videos));
+      }
+      body.append(stat);
+      if (p.lastReply && p.lastReply.body) body.append(el("span", "sc-said", "“" + p.lastReply.body + "”"));
+      const go = el("span", "sc-go"); go.innerHTML = ICON.go;
+      card.append(rec, body, go);
+      const news = peeked[p.id] ? newsOf(p) : null;
+      if (news){
+        fresh++; card.classList.add("fresh"); if (!firstNews) firstNews = newsLine(p.recipient || "They", news);
+        card.setAttribute("aria-label", newsLine(p.recipient || "They", news) + ". Open this song.");
+      }
+      card.addEventListener("click", () => openSong({ id: p.id, key: p.key }));
+      group.append(card);
+      setRecord(rec, { recipient: p.recipient, sender: "", title: p.title, occasion: p.occasion });
+      // News gets a small celebration, once a visit, as its card comes onto the screen.
+      if (news && !cheered[p.id] && "IntersectionObserver" in window){
+        const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting) && step === -1){ io.disconnect(); if (!cheered[p.id]){ cheered[p.id] = true; burst(card, news.taps.length ? news.taps : ["❤️"], 8); } } }, { threshold: 0.6 });
+        io.observe(card);
+      }
     });
-    list.append(b);
+    list.append(group);
+  });
+  // The whole picture in three small figures: sent, played, and how much came back.
+  const known = full.filter(p => peeked[p.id]), back = known.reduce((n, p) => n + (p.taps || []).length + (p.replies || 0) + (p.videos || 0), 0);
+  const sum = $("#yours-sum"); sum.textContent = "";
+  if (known.length){
+    const fig = (n, word) => { const f = el("span", "ys"); f.append(el("b", null, String(n)), document.createTextNode(" " + word)); sum.append(f); };
+    fig(full.length, full.length === 1 ? "song sent" : "songs sent"); fig(known.filter(p => p.firstPlayedAt).length, "played"); fig(back, back === 1 ? "reaction back" : "reactions back");
+  }
+  $("#yours-news").textContent = fresh ? firstNews + (fresh > 1 ? ", and there is more" : "") + "." : "";
+  $("#my-songs").classList.toggle("has-news", fresh > 0);
+  // Who's next: a few people most songs are for, leaving out the ones already sung to from here.
+  const used = full.map(p => (p.relationship || "").toLowerCase()), chips = $("#next-chips"); chips.textContent = "";
+  ["Mom", "Dad", "Wife", "Husband", "Sister", "Brother", "Best friend", "Grandma", "Grandpa", "Daughter", "Son"].filter(w => !used.some(u => u.indexOf(w.toLowerCase()) >= 0)).slice(0, 4).concat(["Someone else"]).forEach(w => {
+    const b = el("button", "chip", w); b.type = "button";
+    b.addEventListener("click", () => { if (w !== "Someone else"){ draft.relationship = w.toLowerCase(); saveDraft(); syncInputs(); } $("#begin-btn").click(); });
+    chips.append(b);
   });
 }
+async function renderYours(){
+  const songs = (load(SONGS_KEY) || []).filter(s => s && s.id && s.key);
+  $("#yours").hidden = !songs.length; $("#my-songs").hidden = !songs.length;
+  if (!songs.length) return;
+  drawYours(songs); // straight away from what this device remembers, then again with how each is doing
+  try {
+    const out = await api("/api/orders/peek", { method: "POST", body: { songs: songs.map(s => ({ id: s.id, key: s.key })) } });
+    (out.songs || []).forEach(p => { peeked[p.id] = p; });
+    const gone = (out.songs || []).filter(p => p.gone).map(p => p.id);
+    if (gone.length) save(SONGS_KEY, (load(SONGS_KEY) || []).filter(s => s && gone.indexOf(s.id) < 0));
+    const left = (load(SONGS_KEY) || []).filter(s => s && s.id && s.key);
+    $("#yours").hidden = !left.length; $("#my-songs").hidden = !left.length;
+    if (left.length) drawYours(left);
+  } catch (e) { /* the list still shows, without the news */ }
+}
+// The heart at the top of the page: back to your songs from anywhere.
+$("#my-songs").addEventListener("click", () => {
+  if (step !== -1){ clearInterval(pollTimer); go(-1); }
+  renderYours();
+  requestAnimationFrame(() => { const y = $("#yours"); if (!y.hidden) y.scrollIntoView({ behavior: calmMotion ? "auto" : "smooth", block: "start" }); });
+});
 
 /* ---------- after paying: what comes with a Platinum record ---------- */
 // The photo is made smaller here, in the browser, before it is sent: no more than 1600 pixels on its long side,

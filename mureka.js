@@ -52,6 +52,28 @@ function startsFrom(lyrics, reported) {
   return starts.length ? starts : null;
 }
 
+// When each line of the customer's lyrics is sung, in seconds, from the same timings: one entry per line, in order,
+// and null for a line Mureka did not report (it is filled in from its neighbours later). Null when too few lines could be found.
+function lineStartsFrom(lyrics, reported) {
+  const plain = t => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const heard = (Array.isArray(reported) ? reported : []).flatMap(s => (Array.isArray(s && s.lines) ? s.lines : [])).filter(l => l && Number.isFinite(l.start) && plain(l.text));
+  const ours = parseSections(lyrics).flatMap(s => s.lines);
+  if (!ours.length || !heard.length) return null;
+  const out = []; let from = 0, found = 0;
+  for (const line of ours) {
+    const want = plain(line);
+    // Look only a little way ahead, so one odd line cannot throw off every line after it.
+    let at = -1;
+    for (let k = from; k < Math.min(heard.length, from + 6); k++) {
+      const got = plain(heard[k].text);
+      if (want && (got === want || got.startsWith(want) || want.startsWith(got))) { at = k; break; }
+    }
+    if (at < 0) { out.push(null); continue; }
+    out.push(heard[at].start / 1000); from = at + 1; found++;
+  }
+  return found >= ours.length * 0.6 ? out : null;
+}
+
 // One request to Mureka. A failure is told to the customer plainly; detail is for the owner's health table.
 async function call(path, opts) {
   let res;
@@ -106,8 +128,9 @@ async function generate(song) {
   return { audio, mime: wav ? 'audio/wav' : 'audio/mpeg', ext: wav ? 'wav' : 'mp3', model: used,
     durationSec: Number(choice.duration) > 0 ? Number(choice.duration) / 1000 : null,
     sectionStarts: startsFrom(body.lyrics, choice.lyrics_sections) || undefined,
+    lineStarts: lineStartsFrom(body.lyrics, choice.lyrics_sections) || undefined,
     // Mureka charges by the song, not by the minute.
     flatCost: cfg.costMurekaPerSong != null && !song.model ? cfg.costMurekaPerSong : (PRICES[used] != null ? PRICES[used] : PRICES[body.model] != null ? PRICES[body.model] : PRICES['mureka-9']) };
 }
 
-module.exports = { name: 'mureka', generate, promptFor, startsFrom, MODELS, model };
+module.exports = { name: 'mureka', generate, promptFor, startsFrom, lineStartsFrom, MODELS, model };

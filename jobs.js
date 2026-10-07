@@ -62,6 +62,40 @@ function previewTarget(lyrics, recipient) {
   return { index: i, name: sections[i].name, lines: sections[i].lines.slice(0, 4), hasName };
 }
 
+// When each line of the lyrics is sung, in seconds, so the gift page can show the words as they are sung.
+// From the engine's own line timings when it gives them. Otherwise from where each part starts, with that
+// part's lines spread evenly through it: close enough to follow along. Null when neither is known.
+function lineTimes(lyrics, out) {
+  const sections = parseSections(lyrics), total = sections.reduce((n, s) => n + s.lines.length, 0);
+  const length = Number(out.durationSec);
+  if (!total || !(length > 0)) return null;
+  let starts = null, sync = 'line';
+  const given = Array.isArray(out.lineStarts) && out.lineStarts.length === total ? out.lineStarts.map(x => (Number.isFinite(x) && x >= 0 && x <= length ? x : null)) : null;
+  if (given && given.filter(x => x != null).length >= total * 0.6) {
+    // Fill a line the engine did not report from the lines either side of it.
+    starts = given.slice();
+    for (let i = 0; i < total; i++) {
+      if (starts[i] != null) continue;
+      let b = i; while (b < total && given[b] == null) b++;
+      const before = i > 0 ? starts[i - 1] : null, after = b < total ? given[b] : null;
+      if (before != null && after != null) starts[i] = before + (after - before) / (b - i + 1);
+      else if (after != null) starts[i] = Math.max(0, after - 3.5 * (b - i));
+      else starts[i] = Math.min(length, (before || 0) + 3.5);
+    }
+  } else if (Array.isArray(out.sectionStarts) && out.sectionStarts.length === sections.length && out.sectionStarts.every(x => Number.isFinite(x) && x >= 0)) {
+    sync = 'part'; starts = [];
+    sections.forEach((s, i) => {
+      const a = out.sectionStarts[i], b = i + 1 < sections.length ? out.sectionStarts[i + 1] : length;
+      // A part can end in music with no words, so a line is never given more than six seconds.
+      const each = Math.min(6, Math.max(0, b - a) / Math.max(1, s.lines.length));
+      s.lines.forEach((_, k) => starts.push(a + each * k));
+    });
+  }
+  if (!starts) return null;
+  for (let i = 1; i < total; i++) if (starts[i] < starts[i - 1]) starts[i] = starts[i - 1]; // never backwards
+  return { starts: starts.map(x => Math.round(x * 10) / 10), sync };
+}
+
 // The words sent to the singer: the name spelled the way it sounds, when the customer gave that.
 function sungLyrics(order) {
   const name = String(order.recipient || '').trim(), say = String(order.say_name || '').trim();
@@ -174,7 +208,10 @@ async function run(id) {
     const at = target && starts && Number.isFinite(starts[target.index]) && out.durationSec ? starts[target.index] : null;
     fs.writeFileSync(path.join(db.mediaDir, preview), makePreview(out.audio, out.mime, out.durationSec, cfg.previewSeconds, at || 0));
     const genSeconds = fresh.gen_started_at ? Math.round((Date.now() - fresh.gen_started_at) / 1000) : null;
+    let sung = null;
+    try { sung = lineTimes(order.lyrics, out); } catch (e) { console.error('Could not work out when each line is sung for order', order.id, e); }
     const takes = fresh.takes.concat({ file, preview, mime: out.mime, duration: out.durationSec, genSeconds, engine: engine.name,
+      lineStarts: sung ? sung.starts : undefined, lineSync: sung ? sung.sync : undefined, // when each line is sung: 'line' from the engine, 'part' worked out
       previewSection: at != null ? { name: target.name, lines: target.lines, hasName: target.hasName } : null,
       title: order.title, lyrics: order.lyrics, style: order.style, arrangement: order.arrangement || '',
       plain: out.plan === 'plain' || undefined, // plain: the studio turned down the full plan, and the plain one was used
@@ -218,4 +255,4 @@ function recoverInterrupted() {
   for (const o of db.generatingOrders()) fail(o.id, 'The recording was interrupted. Try again.');
 }
 
-module.exports = { startGeneration, recoverInterrupted, owedKind, startOwedTake, resumeOwed, makePreview, previewTarget, sungLyrics };
+module.exports = { startGeneration, recoverInterrupted, owedKind, startOwedTake, resumeOwed, makePreview, previewTarget, sungLyrics, lineTimes };

@@ -281,6 +281,32 @@ function sigSVG(strokes){
 // press of play starts with it. One player plays both, one after the other, because a phone only lets a page start
 // sound on the player the listener themselves pressed.
 const mmss = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+// A small celebration: a few reactions rise from an element and fade. Nothing moves for someone who has asked for less motion.
+function burst(from, emojis, count){
+  if (!from || !emojis || !emojis.length) return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const r = from.getBoundingClientRect(), n = count || 8;
+  const layer = el("div", "burst"); layer.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < n; i++){
+    const b = el("span", "burst-bit", emojis[i % emojis.length]);
+    b.style.left = (r.left + r.width * (0.15 + 0.7 * Math.random())) + "px";
+    b.style.top = (r.top + r.height * (0.3 + 0.4 * Math.random())) + "px";
+    b.style.setProperty("--dx", Math.round((Math.random() - 0.5) * 80) + "px");
+    b.style.setProperty("--rise", Math.round(90 + Math.random() * 90) + "px");
+    b.style.animationDelay = Math.round(i * 70 + Math.random() * 60) + "ms";
+    b.style.fontSize = (1.3 + Math.random() * 0.9).toFixed(2) + "rem";
+    layer.append(b);
+  }
+  document.body.append(layer);
+  setTimeout(() => layer.remove(), 2600);
+}
+// Reactions counted: [["heart", 2], ["laugh", 1]] in the order each first arrived.
+function tapCounts(taps){
+  const order = [], n = {};
+  (taps || []).forEach(t => { if (!(t.emoji in n)){ n[t.emoji] = 0; order.push(t.emoji); } n[t.emoji]++; });
+  return order.map(e => [e, n[e]]);
+}
+
 function mountAudio(box, src, playLabel, rec, onFirstPlay, intro){
   box.textContent = "";
   const audio = new Audio(); audio.preload = "metadata";
@@ -288,17 +314,31 @@ function mountAudio(box, src, playLabel, rec, onFirstPlay, intro){
   audio.src = inIntro ? intro.src : src;
   // While the few words play, the song is fetched, so it starts without a gap.
   if (inIntro){ const warm = new Audio(); warm.preload = "auto"; warm.src = src; }
-  const btn = el("button", "btn small primary", playLabel); btn.type = "button";
+  // A round button with the play and pause symbols everyone knows. Its name is still read out to someone who cannot see it.
+  const PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 5.6v12.8a1 1 0 0 0 1.52.86l10.6-6.4a1 1 0 0 0 0-1.72L9.52 4.74A1 1 0 0 0 8 5.6z"/></svg>';
+  const PAUSE = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6.2" y="5" width="4.3" height="14" rx="1.4" fill="currentColor"/><rect x="13.5" y="5" width="4.3" height="14" rx="1.4" fill="currentColor"/></svg>';
+  const btn = el("button", "pbtn"); btn.type = "button";
+  const face = playing => { btn.innerHTML = playing ? PAUSE : PLAY; btn.setAttribute("aria-label", playing ? "Pause" : playLabel); btn.title = playing ? "Pause" : playLabel; btn.classList.toggle("playing", playing); };
+  face(false);
   const bar = el("div", "pbar"), fill = el("i"); bar.append(fill);
   const time = el("span", "ptime", "0:00");
   const wrap = el("div", "player"); wrap.append(btn, bar, time); box.append(wrap);
   let played = false;
   const total = () => (isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0);
   const paint = () => { const d = total(); fill.style.width = d ? (audio.currentTime / d * 100) + "%" : "0";
-    time.textContent = inIntro ? intro.label : mmss(audio.currentTime) + (d ? " / " + mmss(d) : ""); };
+    time.textContent = inIntro ? intro.label : mmss(audio.currentTime) + (d ? " / " + mmss(d) : "");
+    // Whoever shows the words as they are sung is told where the song is. Not during the few spoken words before it.
+    if (!inIntro && typeof audio.onSongTime === "function") audio.onSongTime(audio.currentTime); };
   audio.addEventListener("loadedmetadata", paint); audio.addEventListener("timeupdate", paint);
-  audio.addEventListener("play", () => { wanted = true; btn.textContent = "Pause"; if (rec) rec.classList.add("spinning"); if (!played){ played = true; if (onFirstPlay) onFirstPlay(); } });
-  const stopped = () => { btn.textContent = playLabel; if (rec) rec.classList.remove("spinning"); };
+  // While it plays, the bar and the words are kept up to date many times a second, so they move smoothly.
+  let ticking = 0;
+  const tick = () => { paint(); ticking = audio.paused ? 0 : requestAnimationFrame(tick); };
+  audio.addEventListener("play", () => { wanted = true; face(true); if (!ticking) ticking = requestAnimationFrame(tick); if (rec) rec.classList.add("spinning"); if (!played){ played = true; if (onFirstPlay) onFirstPlay(); } });
+  const stopped = () => { face(false); if (rec) rec.classList.remove("spinning"); };
+  // Touch or drag the bar to move through the song.
+  const seek = e => { const d = total(); if (inIntro || !d) return; const r = bar.getBoundingClientRect(); try { audio.currentTime = Math.min(d - 0.05, Math.max(0, (e.clientX - r.left) / r.width * d)); } catch (x) {} paint(); };
+  bar.addEventListener("pointerdown", e => { seek(e); try { bar.setPointerCapture(e.pointerId); } catch (x) {} });
+  bar.addEventListener("pointermove", e => { if (e.buttons || e.pointerType === "touch") { if (bar.hasPointerCapture && bar.hasPointerCapture(e.pointerId)) seek(e); } });
   // The few words are over (or could not be played): on to the song, or back to it ready to play.
   // heard: they played to the end. When they could not be played at all, nothing offers to play them again.
   const toSong = (play, heard) => {

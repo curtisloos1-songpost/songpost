@@ -42,28 +42,79 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
 
   /* ---------- what is inside ---------- */
   const inside = el("div", "inside"); inside.hidden = true; root.append(inside);
-  inside.append(el("p", "for", "A song written for"));
+  inside.append(el("p", "for", "A song for"));
   const h1 = el("h1", null, g.recipient); h1.dir = "auto"; inside.append(h1);
   inside.append(el("p", "by", "from " + g.sender));
   if (g.fromAll) inside.append(el("p", "from-all", "From " + g.fromAll)); // a song made together: everyone it is from
 
   const rec = el("div", "record"); rec.dataset.metal = metal; setRecord(rec, g);
   const shape = shapeFor(g.tone);
-  const stage = el("div", "rec-stage sealed shape-" + shape); stage.innerHTML = shapeSVG(shape); stage.append(rec); inside.append(stage);
+  const stage = el("div", "rec-stage sealed shape-" + shape); stage.innerHTML = shapeSVG(shape); stage.append(rec);
+  // Platinum: the photo the sender chose. The record is presented first, on its own. As the singing starts the record
+  // gives way and the photo appears in its place, like a print developing. Two dots under it switch between the two,
+  // and a tap on the photo shows it larger. The photo is always shown whole.
+  const stageRow = el("div", "g-stage");
+  let photoAt = () => {}, photoReady = false;
+  if (g.photoUrl){
+    const fig = el("button", "g-photo"), im = el("img"); fig.type = "button"; fig.setAttribute("aria-label", "See the photo from " + g.sender + " larger"); fig.tabIndex = -1;
+    im.alt = "A photo from " + g.sender;
+    const dots = el("div", "g-dots"), dRec = el("button"), dPic = el("button");
+    dRec.type = dPic.type = "button"; dRec.setAttribute("aria-label", "Show the record"); dPic.setAttribute("aria-label", "Show the photo from " + g.sender);
+    dots.append(dRec, dPic); dots.hidden = true;
+    let shown = false, auto = true, due = false;
+    const show = on => {
+      shown = on; stageRow.classList.toggle("show-photo", on); fig.tabIndex = on ? 0 : -1;
+      dRec.setAttribute("aria-pressed", String(!on)); dPic.setAttribute("aria-pressed", String(on));
+    };
+    im.addEventListener("load", () => { photoReady = true; stageRow.classList.add("has-photo"); dots.hidden = false; show(false); if (due && auto){ auto = false; show(true); } });
+    im.addEventListener("error", () => { fig.remove(); dots.remove(); stageRow.classList.remove("has-photo", "show-photo"); photoAt = () => {}; });
+    im.src = g.photoUrl; // fetched now, while the envelope is still closed, so it is ready for its moment
+    dRec.addEventListener("click", () => { auto = false; show(false); });
+    dPic.addEventListener("click", () => { auto = false; show(true); });
+    rec.addEventListener("click", () => { if (photoReady){ auto = false; show(true); } });
+    // Called with the song's time. The photo arrives just as the first line is sung; the sender's spoken words, when
+    // there are some, are heard over the record. The record always has at least four seconds to itself, and the photo
+    // never waits more than ten. With no timings it arrives five seconds in.
+    photoAt = (t, first) => { if (!auto) return; if (t >= (Number.isFinite(first) ? Math.min(10, Math.max(4, first - 0.4)) : 5)){ due = true; if (photoReady){ auto = false; show(true); } } };
+    fig.append(im); stageRow.append(fig);
+    const big = el("dialog", "photo-big"), bigIm = el("img"); bigIm.alt = im.alt; big.append(bigIm); document.body.append(big);
+    fig.addEventListener("click", () => { if (!shown || !big.showModal) return; bigIm.src = g.photoUrl; big.showModal(); });
+    big.addEventListener("click", () => big.close());
+    stageRow.dots = dots;
+  }
+  stageRow.prepend(stage); inside.append(stageRow);
+  if (stageRow.dots) inside.append(stageRow.dots);
 
   const plate = el("div", "plate"); plate.dataset.metal = metal;
   plate.append(el("span", "p1", "Presented to " + g.recipient), el("span", "p2", longDate(g.paidAt)));
   inside.append(plate);
 
   const sheet = el("div", "sheet"); inside.append(sheet);
-  // Platinum: the photo the sender chose, above the title.
-  if (g.photoUrl){
-    const fig = el("div", "g-photo"), im = el("img"); im.src = g.photoUrl; im.alt = "A photo from " + g.sender;
-    im.addEventListener("error", () => fig.remove());
-    fig.append(im); sheet.append(fig);
-  }
   const titleLine = el("p", "g-title", g.title || ""); titleLine.hidden = !g.title; sheet.append(titleLine);
   const ly = el("div", "g-lyrics");
+  // The words as they are sung: the line being sung, with the one before and the one after. Shown when the song came
+  // with its timings. All the words are still there to read, a tap away; without timings they are simply shown.
+  const kara = el("div", "kara"); kara.hidden = true; kara.setAttribute("aria-hidden", "true"); // read in full below by a screen reader
+  const karaLines = el("div", "kara-lines"); kara.append(karaLines);
+  const allWords = el("details", "g-all plain"); allWords.open = true;
+  const allSum = el("summary"); allSum.append(el("span", null, "All the words")); allWords.append(allSum, ly);
+  let sungAt = null, sungNow = -2;
+  const placeLine = () => {
+    const items = karaLines.children; if (!items.length || kara.hidden) return;
+    const at = items[Math.max(0, sungNow)];
+    karaLines.style.transform = "translateY(" + Math.round(kara.clientHeight / 2 - at.offsetTop - at.offsetHeight / 2) + "px)";
+  };
+  const showLine = i => {
+    if (i === sungNow) return; sungNow = i;
+    Array.from(karaLines.children).forEach((p, k) => { p.classList.toggle("on", k === i); p.classList.toggle("near", Math.abs(k - Math.max(0, i)) === 1 || (i < 0 && k === 0)); });
+    placeLine();
+  };
+  const follow = t => {
+    if (!sungAt) return;
+    let i = -1; while (i + 1 < sungAt.length && sungAt[i + 1] <= t + 0.3) i++; // a touch early, so the line is up as it starts
+    showLine(i);
+  };
+  window.addEventListener("resize", placeLine);
 
   // Platinum: every recording is kept, and the listener can switch between them.
   const box = el("div");
@@ -72,16 +123,16 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
     if (heard || fromSender) return;
     heard = true; api("/api/gift/" + encodeURIComponent(id) + "/played", { method: "POST" }).catch(() => {});
   };
-  const saveLink = el("a", "btn small", "Save the song"); saveLink.setAttribute("download", "");
+  const saveLink = el("a", "share s-save", "Save"); saveLink.setAttribute("download", ""); saveLink.setAttribute("aria-label", "Save the song");
   // Platinum: the lyric sheet, made to print and frame. It follows the take being played.
-  const sheetLink = el("a", "btn small", "Lyric sheet to print and frame"); sheetLink.target = "_blank"; sheetLink.rel = "noopener";
+  const sheetLink = el("a", "share s-sheet", "Lyric sheet"); sheetLink.target = "_blank"; sheetLink.rel = "noopener"; sheetLink.setAttribute("aria-label", "Lyric sheet to print and frame");
   // The sender's own voice, heard once before the song. It can be heard again from a small button under the player.
   const again = el("button", "btn quiet small voice-again", "Hear " + g.sender + "'s message again"); again.type = "button"; again.hidden = true;
   again.addEventListener("click", () => { if (audio && audio.playIntro) audio.playIntro(); });
   let voiceOk = !!g.voiceUrl; // false once the recording turns out not to play
   // Each take carries its own words, which differ when the lyrics were changed between takes.
   let cur = { title: g.title, lyrics: g.lyrics, n: null }; // what is on the page now, for the email
-  function useTake(url, title, lyrics, n, first){
+  function useTake(url, title, lyrics, n, first, starts){
     if (audio) audio.pause();
     cur = { title: title || "", lyrics: lyrics || "", n: n };
     const intro = voiceOk ? { src: g.voiceUrl, label: "A message from " + g.sender, auto: !!first, onDone: () => { again.hidden = false; }, onBroken: () => { voiceOk = false; again.hidden = true; } } : null;
@@ -90,6 +141,14 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
     if (g.sheetUrl) sheetLink.href = g.sheetUrl + (n != null ? "?take=" + n : "");
     titleLine.textContent = title || ""; titleLine.hidden = !title;
     ly.textContent = ""; lyricsInto(ly, lyrics);
+    const lines = String(lyrics || "").split(/\r?\n/).map(l => l.trim()).filter(l => l && !/^\[.+\]$/.test(l));
+    const timed = Array.isArray(starts) && starts.length === lines.length && lines.length > 1;
+    sungAt = timed ? starts : null; sungNow = -2;
+    karaLines.textContent = ""; kara.hidden = !timed;
+    allWords.classList.toggle("plain", !timed); allWords.open = !timed;
+    if (timed){ lines.forEach(t => { const p = el("p", "kl", t); p.dir = "auto"; karaLines.append(p); }); showLine(-1); }
+    const firstLine = timed ? starts[0] : NaN;
+    audio.onSongTime = t => { if (timed) follow(t); photoAt(t, firstLine); };
   }
   if (g.takes && g.takes.length > 1){
     const takes = el("div", "takes");
@@ -98,20 +157,20 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
       b.setAttribute("aria-pressed", String(t.chosen));
       b.addEventListener("click", () => {
         Array.from(takes.children).forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-        useTake(t.url, t.title || g.title, t.lyrics || g.lyrics, t.n); again.hidden = !voiceOk; audio.play().catch(() => {});
+        useTake(t.url, t.title || g.title, t.lyrics || g.lyrics, t.n, false, t.lineStarts); again.hidden = !voiceOk; audio.play().catch(() => {});
       });
       takes.append(b);
     });
     sheet.append(takes);
   }
-  sheet.append(box);
+  sheet.append(box, kara);
   if (g.voiceUrl) sheet.append(again);
-  useTake(g.audioUrl, g.title, g.lyrics, null, true);
+  useTake(g.audioUrl, g.title, g.lyrics, null, true, g.lineStarts);
 
   /* The words by email, to keep. With a mail service connected we send it to the address they type.
      Without one, their own mail app opens with the email already written, for them to send to themselves. */
   const giftLink = location.origin + "/g/" + encodeURIComponent(id);
-  const mailBtn = el("button", "btn small", "Email this to myself"); mailBtn.type = "button"; mailBtn.setAttribute("aria-expanded", "false");
+  const mailBtn = el("button", "share s-mail", "Email"); mailBtn.type = "button"; mailBtn.setAttribute("aria-label", "Email this to myself"); mailBtn.setAttribute("aria-expanded", "false");
   const mailBox = el("div", "mail-me"); mailBox.hidden = true;
   const mailSaid = el("p", "status-line"); mailSaid.setAttribute("role", "status");
   const copyBtn = el("button", "btn quiet small", "Copy the link instead"); copyBtn.type = "button";
@@ -161,12 +220,33 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
     });
   }
 
-  const keep = el("div", "keep");
-  keep.append(saveLink);
-  if (g.sheetUrl) keep.append(sheetLink);
-  keep.append(mailBtn);
-  keep.append(el("p", "status-line", "Save the song if you want to keep it. This page may not stay online."));
-  keep.append(mailBox);
+  // One tap to tell the sender how it felt. No typing. Each reaction can be sent once from this device.
+  if (!fromSender && Array.isArray(g.tapChoices) && g.tapChoices.length){
+    const TAP_KEY = "songpost-taps-v1";
+    let sentAll = {}; try { sentAll = JSON.parse(localStorage.getItem(TAP_KEY) || "{}") || {}; } catch (e) {}
+    const mine = Array.isArray(sentAll[id]) ? sentAll[id] : [];
+    const wrap = el("div", "taps"), row = el("div", "taps-row"); row.setAttribute("role", "group");
+    const say = el("p", "taps-say", mine.length ? g.sender + " will see it" : "Tell " + g.sender + " how it felt"); say.setAttribute("role", "status");
+    row.setAttribute("aria-label", "Send " + g.sender + " a reaction");
+    g.tapChoices.forEach(e => {
+      const b = el("button", "tap", e); b.type = "button"; b.setAttribute("aria-label", "Send " + g.sender + " " + e); b.setAttribute("aria-pressed", String(mine.indexOf(e) >= 0));
+      b.addEventListener("click", async () => {
+        if (b.getAttribute("aria-pressed") === "true") return;
+        b.setAttribute("aria-pressed", "true"); burst(b, [e], 7); say.textContent = g.sender + " will see it";
+        try {
+          await api("/api/gift/" + encodeURIComponent(id) + "/tap", { method: "POST", body: { emoji: e } });
+          mine.push(e); sentAll[id] = mine; try { localStorage.setItem(TAP_KEY, JSON.stringify(sentAll)); } catch (x) {}
+        } catch (err) { b.setAttribute("aria-pressed", "false"); say.textContent = err.message; }
+      });
+      row.append(b);
+    });
+    wrap.append(say, row); sheet.append(wrap);
+  }
+  const keep = el("div", "keep"), acts = el("div", "g-acts");
+  acts.append(saveLink);
+  if (g.sheetUrl) acts.append(sheetLink);
+  acts.append(mailBtn);
+  keep.append(acts, el("p", "status-line", "Save the song to keep it. This page may not stay online."), mailBox);
   sheet.append(keep);
 
   // The note, signed: in the sender's own hand when they signed it, else with their name.
@@ -193,7 +273,8 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
     });
     sheet.append(card);
   }
-  sheet.append(ly);
+  sheet.append(allWords);
+  window.addEventListener("beforeprint", () => { allWords.open = true; }); // the printed page always carries the words
 
   // A few words back to the sender.
   const reply = el("div", "reply");
@@ -364,7 +445,7 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   repBtn.addEventListener("click", () => {
     rep.textContent = "";
     const why = el("textarea"); why.maxLength = 600; why.setAttribute("aria-label", "What is wrong with this song"); why.placeholder = "What is wrong with this song?";
-    why.style.cssText = "display:block;width:100%;min-height:70px;margin:0 0 8px;padding:8px 10px;border:1px solid var(--rule);border-radius:3px;background:transparent;font:inherit;color:inherit";
+    why.style.cssText = "display:block;width:100%;min-height:70px;margin:0 0 8px;padding:12px 14px;border:1.5px solid transparent;border-radius:14px;background:var(--tint);font:inherit;color:inherit";
     const go = el("button", "btn small", "Send report"); go.type = "button";
     const said = el("p", "status-line");
     go.addEventListener("click", async () => {
@@ -387,7 +468,7 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
       arrive.remove(); inside.hidden = false;
       fitLabel(rec); // now it is on the page, the writing can be measured
       inside.classList.add("reveal"); plate.classList.add("reveal"); sheet.classList.add("reveal");
-      requestAnimationFrame(() => requestAnimationFrame(() => stage.classList.remove("sealed")));
+      requestAnimationFrame(() => requestAnimationFrame(() => { stage.classList.remove("sealed"); placeLine(); }));
       window.scrollTo(0, 0);
       h1.tabIndex = -1; try { h1.focus({ preventScroll: true }); } catch (e) {} // someone using a keyboard or a screen reader lands on what opened
     };

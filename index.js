@@ -20,6 +20,7 @@
     ext          "mp3" (or "wav")
     durationSec  length in seconds, or null if the engine doesn't say
     sectionStarts  optional: when each section of the lyrics starts, in seconds, in order.
+    lineStarts     optional: when each line of the lyrics is sung, in seconds, in order (null for a line not known).
                    With it, the free preview opens on the part where the name is sung.
     flatCost     optional: what this one song cost, in dollars, for an engine that charges by the song.
 

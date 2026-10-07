@@ -26,7 +26,10 @@
 <div class="app">
   <header class="top">
     <div class="wordmark"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11.3" fill="#D3A53A" stroke="#9A7218" stroke-width="1"/><circle cx="12" cy="12" r="7" fill="#FFFFFF"/><path d="M0,-30C-25,-75 -100,-55 -100,-5C-100,45 -40,75 0,110C40,75 100,45 100,-5C100,-55 25,-75 0,-30Z" transform="translate(12 12) scale(.0504) translate(0 -18)" fill="#0E2A33"/></svg>Songpost</div>
+    <div class="top-acts">
+    <button class="my-songs" type="button" id="my-songs" aria-label="My songs" title="My songs" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 20.6s-7.5-4.6-7.5-10.1A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 7.5 2.5c0 5.5-7.5 10.1-7.5 10.1z"/></svg><i></i></button>
     <button class="get-app" type="button" id="keep-app" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10.5l5 5 5-5"/><path d="M4.5 20h15"/></svg>Get the app</button>
+    </div>
   </header>
 
   <main>
@@ -35,28 +38,32 @@
         <div id="hero">
           <h1 class="display">Turn their story or theme into a song.</h1>
           <p class="tagline">Spreading kindness, one song at a time</p>
-          <p class="lede">How she raised you. The summer you met. The thing he always says. Tell us, and we write the lyrics, record the song, and give you a private page to send.</p>
-          <p class="lede">Or send a song about a theme or a feeling instead.</p>
+          <p class="lede">Tell us about them. We write it, record it, and you send it.</p>
           <div class="center starts">
             <button class="btn light big" type="button" id="begin-btn">Start their song</button>
             <button class="btn big" type="button" id="theme-btn">Start a theme song</button>
           </div>
           <p class="fine">About five minutes. You hear it before you pay. Songs from $24.99.</p>
+          <section class="yours" id="yours" aria-labelledby="yours-h" hidden>
+            <h2 id="yours-h">Your songs</h2>
+            <p class="yours-sum" id="yours-sum"></p>
+            <p class="yours-news" id="yours-news" role="status"></p>
+            <div id="yours-list"></div>
+            <div class="next" id="next-box">
+              <p class="next-h">Who's next?</p>
+              <div class="chips" id="next-chips"></div>
+            </div>
+          </section>
           <div class="samples" id="samples" hidden>
             <h3>Hear an example</h3>
             <div id="samples-list"></div>
           </div>
           <ol class="how">
-            <li><span class="n">1</span><span class="t">Tell us about them</span><span class="d">A few short questions about your story together, or about the theme or feeling you want the song to carry.</span></li>
-            <li><span class="n">2</span><span class="t">Hear your song</span><span class="d">We write and record it while you wait. Listen before you pay.</span></li>
-            <li><span class="n">3</span><span class="t">Send it</span><span class="d">They open an envelope with their name on it, sealed with a record, and find their own gold record, your note, and the lyrics.</span></li>
+            <li><span class="n">1</span><span class="t">Tell us about them</span><span class="d">A few quick questions.</span></li>
+            <li><span class="n">2</span><span class="t">Hear your song</span><span class="d">Listen before you pay.</span></li>
+            <li><span class="n">3</span><span class="t">Send it</span><span class="d">They open an envelope and find their own gold record.</span></li>
           </ol>
-          <p class="fine together-fine">Making it with sisters, brothers or friends? Start the song, then invite them to add their own memories. One song, from all of you.</p>
-          <div class="yours" id="yours" hidden>
-            <h3>Your songs</h3>
-            <p class="fine">Open one to get its link again, see if it has been played, and read what they wrote back.</p>
-            <div id="yours-list"></div>
-          </div>
+          <p class="fine together-fine">Making it together? Invite family and friends to add their memories.</p>
           <figure class="founder" id="founder" hidden><blockquote></blockquote><figcaption></figcaption></figure>
         </div>
 
@@ -85,7 +92,7 @@
             <input data-bind="sayName" maxlength="40" autocomplete="off">
           </label>
           <div class="after-field" id="hear-row" hidden>
-            <button class="btn small" type="button" id="hear-btn">Hear it said</button>
+            <button class="btn small ico ico-ear" type="button" id="hear-btn">Hear it said</button>
             <span class="hint">This is your device's voice, not the singer. If it says the name the way you mean, your spelling is right.</span>
           </div>
           <label class="field">They are my
@@ -416,6 +423,7 @@
           </div>
           <div class="after-pay" id="heard-box" hidden>
             <p class="status-line" id="heard-note" role="status"></p>
+            <div class="love-taps" id="heard-taps" hidden></div>
             <div id="replies"></div>
             <p class="status-line" id="passed-note" role="status"></p>
           </div>
@@ -481,11 +489,11 @@
         <div class="rec-pair">
           <div class="rec-pick" id="pick-person">
             <div class="rec-stage"><svg class="rings" viewBox="-130 -130 260 260" aria-hidden="true" focusable="false"><circle class="hl" r="50" style="--k:1.205;--o:1.00;--o2:1.00"/><circle class="hl" r="50" style="--k:1.386;--o:1.00;--o2:0.90"/><circle class="hl" r="50" style="--k:1.594;--o:0.90;--o2:0.80"/><circle class="hl" r="50" style="--k:1.833;--o:0.80;--o2:0.70"/><circle class="hl" r="50" style="--k:2.108;--o:0.70;--o2:0.60"/><circle class="hl" r="50" style="--k:2.424;--o:0.60;--o2:0.50"/><circle class="hl" r="50" style="--k:2.788;--o:0.50;--o2:0.40"/><circle class="hl" r="50" style="--k:3.206;--o:0.40;--o2:0.30"/><circle class="hl" r="50" style="--k:3.687;--o:0.30;--o2:0.20"/><circle class="hl" r="50" style="--k:4.240;--o:0.20;--o2:0.10"/><circle class="hl" r="50" style="--k:4.876;--o:0.10;--o2:0.00"/><g class="hb"><circle class="well" r="63"/><circle class="foil" r="63"/></g></svg><div class="record" id="make-record"></div></div>
-            <button class="btn quiet rec-cap" type="button">Their story, a memory, an occasion</button>
+            <button class="rec-cap" type="button"><b>Their story</b><span>a memory, an occasion</span></button>
           </div>
           <div class="rec-pick" id="pick-theme">
             <div class="rec-stage"><div class="record" id="theme-record"></div></div>
-            <button class="btn quiet rec-cap" type="button">Young love, growing old, coming home</button>
+            <button class="rec-cap" type="button"><b>A theme</b><span>young love, growing old, coming home</span></button>
           </div>
         </div>
       </aside>

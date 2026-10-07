@@ -86,6 +86,9 @@ addColumns('orders', ['photo_share INTEGER NOT NULL DEFAULT 0']);
 addColumns('orders', ['sheet_design TEXT']);
 addColumns('replies', ['photo_ok INTEGER NOT NULL DEFAULT 0', 'photo_featured INTEGER NOT NULL DEFAULT 0']);
 // A video the recipient recorded for the buyer. share_ok: the recipient allows Songpost to show it to others.
+// One-tap reactions from the person a song is for: a heart, a laugh. Each tap is one row.
+db.exec(`CREATE TABLE IF NOT EXISTS taps (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, emoji TEXT NOT NULL, at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS taps_order ON taps (order_id);`);
 db.exec(`CREATE TABLE IF NOT EXISTS reactions (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, file TEXT, mime TEXT,
   bytes INTEGER, seconds INTEGER, share_ok INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL)`);
 // tag: what a message is for, when something has to happen once it is delivered ("schedule").
@@ -201,7 +204,7 @@ module.exports = {
     unlinkMedia(o.photo); unlinkMedia(o.spoken);
     for (const r of db.prepare('SELECT file FROM reactions WHERE order_id = ?').all(o.id)) unlinkMedia(r.file);
     db.transaction(() => {
-      for (const t of ['replies', 'reports', 'outbox', 'events', 'reminders', 'samples', 'reactions']) db.prepare(`DELETE FROM ${t} WHERE order_id = ?`).run(o.id);
+      for (const t of ['replies', 'reports', 'outbox', 'events', 'reminders', 'samples', 'reactions', 'taps']) db.prepare(`DELETE FROM ${t} WHERE order_id = ?`).run(o.id);
       // what the people who made it together wrote goes too
       for (const g of db.prepare('SELECT id FROM song_groups WHERE order_id = ?').all(o.id)) {
         db.prepare('DELETE FROM group_parts WHERE group_id = ?').run(g.id);
@@ -316,6 +319,8 @@ module.exports = {
   },
   // What the recipient wrote back about one song, oldest first.
   repliesFor(orderId) { return db.prepare('SELECT body, at FROM replies WHERE order_id = ? ORDER BY at').all(orderId); },
+  addTap(orderId, emoji) { db.prepare('INSERT INTO taps (order_id, emoji, at) VALUES (?, ?, ?)').run(orderId, emoji, Date.now()); },
+  tapsFor(orderId) { return db.prepare('SELECT emoji, at FROM taps WHERE order_id = ? ORDER BY at, id').all(orderId); },
   // Replies with the first name of the person who wrote them (the song's recipient).
   listReplies(limit = 200) {
     return db.prepare(`SELECT r.*, o.recipient, o.photo AS order_photo, o.photo_share AS order_photo_share, o.removed AS order_removed

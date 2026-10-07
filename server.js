@@ -216,7 +216,7 @@ function senderView(o) {
     // owed: what a Platinum record still has coming ("premium" or "second") and has not been recorded yet
     owed: o.status !== 'generating' ? owedKind(o) : null, secondTakeMissing: o.status !== 'generating' && owedKind(o) === 'second',
     // what has happened on the gift page, so the sender can see it on their own page even with no message service
-    firstPlayedAt: o.first_played_at || null, replies: o.paid ? db.repliesFor(o.id) : [],
+    firstPlayedAt: o.first_played_at || null, replies: o.paid ? db.repliesFor(o.id) : [], taps: o.paid ? db.tapsFor(o.id) : [],
     // a song made together: everyone it is from. passedOn: songs since started from this one's gift page or by its contributors.
     fromAll: o.group_names || '', together: !!o.group_id, passedOn: o.paid ? db.songsLedTo(o.id) : 0,
     heard: o.heard || '', reminder: o.paid ? reminderView(o) : null,
@@ -229,6 +229,22 @@ function senderView(o) {
     answers: o.paid ? ownAnswers(o) : [], wordsShown: wordsShown(o), signature: signatureOf(o), voiceUrl: o.paid ? voiceUrl(o) : null,
   };
 }
+// How a buyer's songs are doing, all at once, for the list of their songs on the opening page. They send the songs
+// this device remembers, each with its own key; a song whose key is wrong or that is gone comes back as gone.
+app.post('/api/orders/peek', wrap(async (req, res) => {
+  const asked = Array.isArray(req.body && req.body.songs) ? req.body.songs.slice(0, 40) : [];
+  if (!limits.allow(req.ip, 'peek', 240)) throw new PublicError('Try again in a little while.', 429);
+  res.set('Cache-Control', 'no-store').json({ songs: asked.map(s => {
+    const id = String(s && s.id || ''), key = Buffer.from(String(s && s.key || '')), o = id ? db.getOrder(id) : null, real = Buffer.from(o ? o.key : '');
+    if (!o || o.removed || !key.length || key.length !== real.length || !crypto.timingSafeEqual(key, real)) return { id, gone: true };
+    const replies = o.paid ? db.repliesFor(o.id) : [], last = replies[replies.length - 1];
+    return { id, recipient: o.recipient, title: shown(o).title, tier: o.tier || 'gold', relationship: o.relationship || '', occasion: o.occasion || '',
+      paid: !!o.paid, paidAt: o.paid_at || null, firstPlayedAt: o.first_played_at || null,
+      replies: replies.length, lastReply: last ? { body: clip(last.body, 140), at: last.at } : null,
+      taps: o.paid ? db.tapsFor(o.id) : [], videos: o.paid ? db.reactionsFor(o.id).length : 0 };
+  }) });
+}));
+
 // How long lyric writing usually takes: the average of recent requests, or a starting guess.
 const lyricTimes = [];
 const lyricsEstimateSeconds = () => (lyricTimes.length >= 3 ? Math.round(lyricTimes.reduce((a, b) => a + b, 0) / lyricTimes.length) : 20);
@@ -669,6 +685,9 @@ app.post('/api/orders/:id/reminder', wrap(async (req, res) => {
 }));
 
 /* ---------- the gift page ---------- */
+// The reactions the person a song is for can send with one tap. Ones every phone can draw.
+const TAPS = ['\u2764\uFE0F', '\u{1F970}', '\u{1F62D}', '\u{1F602}', '\u{1F389}', '\u{1F64F}'];
+const MAX_TAPS = 60; // for one song, in all
 function liveGift(id) {
   const o = db.getOrder(id);
   if (!o || !o.paid) throw new PublicError('This song has not been unlocked yet.', 404);
@@ -685,8 +704,11 @@ app.get('/api/gift/:id', wrap(async (req, res) => {
     fromAll: o.group_names && o.group_names !== o.sender ? o.group_names : '', together: !!o.group_id,
     canEmail: notify.live(), // true: we email the words when asked. false: the page opens the visitor's own mail app instead
     photoAsk: o.tier === 'platinum' && !!o.photo && !!o.photo_share, // the sender allows the photo with a testimonial, so the recipient is asked too
-    reactionsLeft: Math.max(0, MAX_REACTIONS - db.reactionsFor(o.id).length) };
+    reactionsLeft: Math.max(0, MAX_REACTIONS - db.reactionsFor(o.id).length), tapChoices: TAPS };
   if (out.tier === 'platinum') { out.photoUrl = photoUrl(o); out.sheetUrl = sheetUrl(o); }
+  // When each line is sung, so the page can show the words as they are sung. Only when the times belong to the words shown.
+  const sungTake = o.takes[o.chosen];
+  if (sungTake && Array.isArray(sungTake.lineStarts) && (sungTake.lyrics || o.lyrics) === words.lyrics) out.lineStarts = sungTake.lineStarts;
   const answers = ownAnswers(o);
   out.words = wordsShown(o).map(i => answers[i]); out.signature = signatureOf(o); out.voiceUrl = voiceUrl(o);
   // The recipient gets one song: the take the sender chose. The other takes of a Platinum record stay with the
@@ -709,6 +731,19 @@ app.post('/api/gift/:id/reply', wrap(async (req, res) => {
   if (!limits.allow(req.ip, 'reply', 10)) throw new PublicError('That is a lot of messages. Try again later.', 429);
   db.addReply(o.id, body, !!req.body.shareOk, !!req.body.photoOk && o.tier === 'platinum' && !!o.photo && !!o.photo_share);
   notify.send(o.id, o.contact, `${o.recipient} wrote back about your song`, `${o.recipient} says:\n\n${body}`);
+  res.json({ ok: true });
+}));
+// A reaction sent with one tap. The sender sees it on their own page; they are told about the first one.
+app.post('/api/gift/:id/tap', wrap(async (req, res) => {
+  const o = liveGift(req.params.id), emoji = String(req.body && req.body.emoji || '');
+  if (!TAPS.includes(emoji)) throw new PublicError('Choose one of the reactions on the page.');
+  if (!limits.allow(req.ip, 'tap', 30)) throw new PublicError('That is a lot of reactions. Try again later.', 429);
+  const before = db.tapsFor(o.id).length;
+  if (before < MAX_TAPS) {
+    db.addTap(o.id, emoji);
+    try { db.addUsage('gift_tap', 1, 0); } catch (e) { /* not counted */ }
+    if (!before) notify.send(o.id, o.contact, `${o.recipient} reacted to your song`, `${o.recipient} sent you ${emoji}`);
+  }
   res.json({ ok: true });
 }));
 // The words by email, to keep. Whoever is on the gift page types their own address and we send the song's title, its
@@ -1607,6 +1642,7 @@ app.get('/admin', (req, res) => {
       ${tile('Listens and saves', `${counted('gift_play')} / ${counted('gift_save')}`, 'Times a gift page played the song, and times the song was saved')}
       ${tile('Words emailed', String(counted('gift_email')), 'Times someone emailed a song\'s words to themselves')}
       ${tile('Reaction videos', String(counted('gift_reaction')), 'Videos recipients recorded for the person who sent the song')}
+      ${tile('One-tap reactions', String(counted('gift_tap')), 'Hearts and other reactions recipients sent with one tap')}
       ${tile('Printed cards', `${counted('qr_card')} / ${counted('gift_qr_open')}`, 'Times a QR card was opened to print, and times a song was opened by scanning a code')}
       ${tile('On phone home screens', `${counted('app_install')} / ${counted('app_open')}`, 'Times Songpost was added to a home screen (Android only: iPhones do not report it), and visits opened from one')}
     </div>
