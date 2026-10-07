@@ -665,6 +665,8 @@ function renderAsk(){
   });
 }
 
+let voiceAudio = null, leadAudio = null; // the players for the buyer's own few words, and for the take that is chosen
+
 /* ---------- their next big day ---------- */
 // Asked once the song is unlocked: a day that comes round each year for this person. We email the buyer a week before,
 // with last time's song to hear again and a start on the next one. Only the month and the day are kept.
@@ -869,9 +871,14 @@ function drawYours(songs){
   $("#my-songs").classList.toggle("has-news", fresh > 0);
   // Who's next: a few people most songs are for, leaving out the ones already sung to from here.
   const used = full.map(p => (p.relationship || "").toLowerCase()), chips = $("#next-chips"); chips.textContent = "";
-  ["Mom", "Dad", "Wife", "Husband", "Sister", "Brother", "Best friend", "Grandma", "Grandpa", "Daughter", "Son"].filter(w => !used.some(u => u.indexOf(w.toLowerCase()) >= 0)).slice(0, 4).concat(["Someone else"]).forEach(w => {
-    const b = el("button", "chip", w); b.type = "button";
-    b.addEventListener("click", () => { if (w !== "Someone else"){ draft.relationship = w.toLowerCase(); saveDraft(); syncInputs(); } $("#begin-btn").click(); });
+  // Each is a small gold record waiting for its name; the last is an empty ring for anyone else.
+  ["Mom", "Dad", "Wife", "Husband", "Sister", "Brother", "Best friend", "Grandma", "Grandpa", "Daughter", "Son"].filter(w => !used.some(u => u.indexOf(w.toLowerCase()) >= 0)).slice(0, 3).concat(["Someone else"]).forEach(w => {
+    const other = w === "Someone else", b = el("button", "next-rec" + (other ? " other" : "")); b.type = "button";
+    b.setAttribute("aria-label", other ? "Start a song for someone else" : "Start a song for your " + w.toLowerCase());
+    if (other){ const ring = el("span", "next-plus"); ring.setAttribute("aria-hidden", "true"); b.append(ring); }
+    else { const rec = el("div", "record"); rec.setAttribute("aria-hidden", "true"); b.append(rec); setRecord(rec, { recipient: w, sender: "", title: "", occasion: "", lead: "for", aria: w }); }
+    b.append(el("span", "next-name", w));
+    b.addEventListener("click", () => { if (!other){ draft.relationship = w.toLowerCase(); saveDraft(); syncInputs(); } $("#begin-btn").click(); });
     chips.append(b);
   });
 }
@@ -935,7 +942,8 @@ function renderTouches(own, platinum){
   $("#voice-lede").textContent = "Up to " + VOICE_SECONDS + " seconds. " + name + " hears you just before the song starts.";
   if (!voiceBusy){
     const player = $("#voice-play");
-    player.hidden = !view.voiceUrl; if (view.voiceUrl && player.getAttribute("src") !== view.voiceUrl) player.src = view.voiceUrl;
+    player.hidden = !view.voiceUrl;
+    if (view.voiceUrl && player.dataset.src !== view.voiceUrl){ if (voiceAudio) voiceAudio.pause(); player.dataset.src = view.voiceUrl; voiceAudio = mountAudio(player, view.voiceUrl, "Play your words", null); }
     $("#voice-rec").textContent = view.voiceUrl ? "Record it again" : "Record"; $("#voice-rec").hidden = false; $("#voice-stop").hidden = true;
     $("#voice-remove").hidden = !view.voiceUrl; $("#voice-bar").hidden = true;
   }
@@ -1048,6 +1056,7 @@ $("#voice-rec").addEventListener("click", async () => {
     } catch (x) { note.textContent = ""; err.textContent = x.message; }
     voiceIdle();
   };
+  if (voiceAudio) voiceAudio.pause();
   $("#voice-rec").hidden = true; $("#voice-remove").hidden = true; $("#voice-play").hidden = true; $("#voice-stop").hidden = false;
   const bar = $("#voice-bar"), fill = $("i", bar); bar.hidden = false; fill.style.width = "0";
   const began = Date.now();
@@ -1109,22 +1118,16 @@ function renderPlat(){
   // Every take is kept, and the sender chooses the one that plays first.
   const lead = $("#lead-box"), chips = $("#lead-chips");
   lead.hidden = !(view.takes.length > 1 && view.status !== "generating");
+  if (lead.hidden && leadAudio) leadAudio.pause();
   chips.textContent = ""; $("#lead-err").textContent = "";
   if (lead.hidden) return;
   $("#lead-lede").textContent = name + " gets one song. Listen to your takes here and choose the one they hear.";
   // A player for the take that is chosen now, so the sender can compare them without leaving this page.
-  let hear = document.getElementById("lead-audio");
-  if (!hear){
-    hear = document.createElement("audio"); hear.id = "lead-audio"; hear.controls = true; hear.preload = "none";
-    // the record beside it turns, and its lines ripple, while a take plays here too
-    hear.addEventListener("play", () => $("#make-record").classList.add("spinning"));
-    ["pause", "ended", "emptied"].forEach(ev => hear.addEventListener(ev, () => { if (!(view && view.status === "generating")) $("#make-record").classList.remove("spinning"); }));
-    hear.style.cssText = "display:block;width:100%;margin-top:12px";
-    hear.setAttribute("aria-label", "The take " + name + " will hear");
-    lead.append(hear);
-  }
+  // The record beside it turns, and its lines ripple, while a take plays here too.
+  let holder = document.getElementById("lead-player");
+  if (!holder){ holder = el("div"); holder.id = "lead-player"; lead.append(holder); }
   const hearSrc = "/media/" + encodeURIComponent(view.id) + "?take=" + view.chosen;
-  if (hear.getAttribute("src") !== hearSrc){ hear.pause(); hear.setAttribute("src", hearSrc); }
+  if (holder.dataset.src !== hearSrc){ if (leadAudio) leadAudio.pause(); holder.dataset.src = hearSrc; leadAudio = mountAudio(holder, hearSrc, "Play the take " + name + " will hear", $("#make-record")); }
   view.takes.forEach(t => {
     const b = el("button", "chip", "Take " + (t.n + 1) + (t.premium ? " (premium)" : "")); b.type = "button";
     b.setAttribute("aria-pressed", String(t.n === view.chosen));

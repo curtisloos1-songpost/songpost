@@ -1179,7 +1179,7 @@ function occasionBody(o) {
 app.get('/songs', (req, res) => {
   const list = OCCASIONS.map(o => `<li><a href="/songs/${esc(o.slug)}">${esc(o.heading)}</a></li>`).join('');
   res.type('html').send(framed('Custom songs for every occasion - Songpost', 'A song for every occasion',
-    `<p class="lede">Tell us about someone, and Songpost writes and records a song about them in minutes. Pick the occasion to see how it works.</p><ul>${list}</ul>
+    `<p class="lede">Tell us about someone, and Songpost writes and records a song about them in minutes. Pick the occasion to see how it works.</p><ul class="occ-list">${list}</ul>
      ${ANY_OCCASION}`,
     { index: searchable(), desc: 'Custom songs for birthdays, anniversaries, weddings, retirements and more. Written and recorded from your story in minutes. Hear it before you pay.' }));
 });
@@ -1814,6 +1814,13 @@ app.get('/admin', (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+// An address that leads nowhere gets a Songpost page saying so. Anything under /api answers the way the rest of the API does.
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found.' });
+  if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(404).end();
+  res.status(404).set('Cache-Control', 'no-store').type('html').send(framed('Page not found - Songpost', "This page isn't here.",
+    '<p>The link may be mistyped, or the page has moved.</p><div class="row"><a class="btn primary" href="/">Go to Songpost</a></div>'));
+});
 
 /* ---------- errors ---------- */
 app.use((err, req, res, next) => {

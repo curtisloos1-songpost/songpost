@@ -51,7 +51,7 @@
             <div id="yours-list"></div>
             <div class="next" id="next-box">
               <p class="next-h">Who's next?</p>
-              <div class="chips" id="next-chips"></div>
+              <div class="next-row" id="next-chips"></div>
             </div>
           </section>
           <div class="samples" id="samples" hidden>
@@ -89,7 +89,7 @@
           </label>
           <label class="field has-after">How do you say their name?
             <span class="hint">Optional. Only if people often say it wrong. Spell it the way it sounds, like "ah-NAH".</span>
-            <input data-bind="sayName" maxlength="40" autocomplete="off">
+            <input data-bind="sayName" maxlength="40" autocomplete="off" placeholder="ah-NAH">
           </label>
           <div class="after-field" id="hear-row" hidden>
             <button class="btn small ico ico-ear" type="button" id="hear-btn">Hear it said</button>
@@ -146,13 +146,13 @@
                 <p class="status-line">Send them this link. Answer your own questions above, then carry on whenever you're ready: the song uses whatever has been added by the time the lyrics are written.</p>
                 <div class="linkbox">
                   <input id="tg-link" readonly aria-label="Invite link">
-                  <button class="btn small ico ico-copy" type="button" id="tg-copy">Copy link</button>
                 </div>
-                <div class="row">
-                  <button class="btn small ico ico-share" type="button" id="tg-native" hidden>Share it</button>
-                  <a class="btn small ico ico-sms" id="tg-sms">Text it</a>
-                  <a class="btn small ico ico-wa" id="tg-wa" target="_blank" rel="noopener">WhatsApp it</a>
-                  <a class="btn small ico ico-mail" id="tg-mail">Email it</a>
+                <div class="share-row" role="group" aria-label="Ways to send the invitation">
+                  <button class="share s-copy" type="button" id="tg-copy">Copy link</button>
+                  <a class="share s-sms" id="tg-sms">Messages</a>
+                  <a class="share s-wa" id="tg-wa" target="_blank" rel="noopener">WhatsApp</a>
+                  <a class="share s-mail" id="tg-mail">Email</a>
+                  <button class="share s-more" type="button" id="tg-native" hidden>More</button>
                 </div>
               </div>
               <div id="tg-list"></div>
@@ -335,7 +335,7 @@
                 <button class="btn quiet small" type="button" id="voice-remove" hidden>Remove it</button>
               </div>
               <div class="rp-bar" id="voice-bar" aria-hidden="true" hidden><i></i></div>
-              <audio id="voice-play" controls preload="none" hidden></audio>
+              <div id="voice-play" hidden></div>
               <p class="status-line" id="voice-note" role="status"></p>
               <p class="err" role="alert" id="voice-err"></p>
             </details>

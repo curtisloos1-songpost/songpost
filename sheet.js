@@ -19,23 +19,37 @@ const CSS = `
   --sans:"Jost","Avenir Next","Century Gothic","Helvetica Neue",Arial,sans-serif}
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-body{margin:0;background:#E3EBED;color:var(--ink);font-family:var(--sans)}
-.bar{max-width:820px;margin:0 auto;padding:16px 16px 4px;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center}
-.bar a{color:inherit;font-size:.92rem}
-.bar .grow{flex:1}
-.bar button,.bar select{font:inherit;font-size:.92rem;padding:9px 16px;border:1px solid var(--ink);border-radius:3px;background:transparent;color:var(--ink);cursor:pointer}
-.bar button.go{background:var(--ink);color:#fff}
-.bar label{font-size:.92rem;display:inline-flex;align-items:center;gap:6px}
-.hint{max-width:820px;margin:0 auto;padding:6px 16px 14px;font-size:.86rem;color:var(--soft)}
-.mail{max-width:820px;margin:0 auto;padding:8px 16px 4px;display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
+body{margin:0;background:#6CBCCB;color:#0E2A33;font-family:var(--sans)}
+/* the controls above the sheet: the Songpost name, then one white card, dressed like the rest of the site */
+.tools{max-width:820px;margin:0 auto;padding:18px 16px 0}
+.tools-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 2px 14px}
+.wm{display:inline-flex;align-items:center;gap:8px;font:600 1.6rem/1 var(--serif);letter-spacing:.01em;color:#0E2A33;text-decoration:none}
+.wm svg{width:.86em;height:.86em;flex:none}
+.back{font-size:.92rem;font-weight:500;color:#0E2A33;text-underline-offset:5px;text-decoration-thickness:1px}
+.bar{background:#fff;border-radius:26px;padding:22px 22px 18px;box-shadow:0 30px 54px -30px rgba(6,40,50,.5);display:grid;gap:16px}
+.bar h1{font:500 2rem/1.1 var(--serif);margin:0}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
+.pick{display:block;font-size:.86rem;font-weight:500;letter-spacing:.02em}
+.pick select{display:block;width:100%;margin-top:6px;font:inherit;font-size:1.02rem;font-weight:400;letter-spacing:0;padding:12px 14px;border:1.5px solid transparent;border-radius:14px;background-color:#EAF5F7;color:#0E2A33;cursor:pointer}
+.pick select:focus-visible{outline:none;border-color:#0E2A33}
+.tick{display:flex;align-items:center;gap:10px;font-size:.98rem;cursor:pointer}
+.tick input{flex:none;width:20px;height:20px;margin:0;accent-color:#0E2A33}
+.acts{display:flex;flex-wrap:wrap;gap:10px}
+.bar button{font:inherit;font-weight:500;font-size:.98rem;letter-spacing:.02em;line-height:1.2;padding:13px 24px;border:0;border-radius:999px;background:#EAF5F7;color:#0E2A33;cursor:pointer}
+.bar button:active{transform:scale(.97)}
+.bar button:focus-visible{outline:2px solid #0E2A33;outline-offset:3px}
+.bar button.go{background:#0E2A33;color:#fff;box-shadow:0 10px 20px -12px rgba(6,40,50,.45)}
+.hint{margin:0;font-size:.88rem;line-height:1.5;color:#52686E}
+.mail{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
 .mail[hidden]{display:none}
-.mail input{flex:1;min-width:13em;font:inherit;font-size:1rem;padding:9px 12px;border:1px solid var(--ink);border-radius:3px;background:#fff;color:var(--ink)}
-.mail button{font:inherit;font-size:.92rem;padding:9px 16px;border:1px solid var(--ink);border-radius:3px;background:var(--ink);color:#fff;cursor:pointer}
-.mail button.plain{background:transparent;color:var(--ink)}
+.mail input{flex:1;min-width:13em;font:inherit;font-size:1rem;padding:12px 14px;border:1.5px solid transparent;border-radius:14px;background:#EAF5F7;color:#0E2A33}
+.mail input:focus-visible{outline:none;border-color:#0E2A33;background:#fff}
+.mail button{background:#0E2A33;color:#fff}
+.mail button.plain{background:#EAF5F7;color:#0E2A33}
 .mail button[hidden],.mail input[hidden]{display:none}
-.mail p{flex-basis:100%;margin:0;font-size:.86rem;color:var(--soft)}
+.mail p{flex-basis:100%;margin:0;font-size:.88rem;color:#52686E}
 .mail p:empty{display:none}
-.frame{margin:0 auto 40px;overflow:hidden}
+.frame{margin:20px auto 44px;overflow:hidden}
 .paper{width:var(--w);height:var(--h);background:#fff;position:relative;transform-origin:top left;
   padding:.82in .9in .7in;display:flex;flex-direction:column;align-items:center;text-align:center;overflow:hidden;
   box-shadow:0 30px 60px -30px rgba(6,40,50,.5)}
@@ -54,9 +68,9 @@ body{margin:0;background:#E3EBED;color:var(--ink);font-family:var(--sans)}
 .ly.two{column-count:2;column-gap:.42in}
 .ly.three{column-count:3;column-gap:.3in}
 .ly.loose .st{break-inside:auto}
-.warn{max-width:820px;margin:0 auto;padding:0 16px 12px;font-size:.9rem;color:#8A2A1F}
+.warn{margin:0;font-size:.92rem;color:#8A2A1F}
 .warn[hidden]{display:none}
-.said{max-width:820px;margin:0 auto;padding:0 16px 10px;font-size:.86rem;color:var(--soft)}
+.said{margin:0;font-size:.88rem;color:var(--soft)}
 .said:empty{display:none}
 .st{margin:0 0 .92em;break-inside:avoid}
 .st:last-child{margin-bottom:0}
@@ -78,9 +92,15 @@ body{margin:0;background:#E3EBED;color:var(--ink);font-family:var(--sans)}
 .paper{isolation:isolate;color:var(--ink)}
 .paper::after{border:.6pt solid #6CBCCB}
 .grooves{display:none;position:absolute;z-index:-1;pointer-events:none}
-.qr-mini{display:flex;flex-direction:column;align-items:center;gap:.04in;margin:.12in 0 0;flex:none}
+.qr-mini{position:absolute;right:.9in;bottom:.7in;display:flex;flex-direction:column;align-items:center;gap:.045in;margin:0}
 .qr-mini[hidden]{display:none}
-.qr-mini svg{width:.96in;height:.96in;display:block}
+.qr-mini svg{width:.82in;height:.82in;display:block}
+.paper.has-qr .from{max-width:calc(100% - 2.2in)}
+.paper[data-design="seaglass"] .qr-mini{right:1.12in;bottom:.9in}
+.paper[data-design="liner"] .qr-mini{right:.95in;bottom:.78in}
+.paper[data-design="liner"].has-qr .from{max-width:calc(100% - 1.1in)}
+.paper[data-design="midnight"] .qr-mini{gap:.09in}
+.paper[data-design="midnight"] .qr-mini svg{outline:.04in solid #fff}
 .qr-mini span{font:500 6.5pt/1 var(--sans);letter-spacing:.14em;color:var(--soft)}
 .orn svg path{fill:var(--silver)}
 /* Sea glass: a white sheet on a sea-glass mat, as if it were already mounted */
@@ -111,7 +131,6 @@ body{margin:0;background:#E3EBED;color:var(--ink);font-family:var(--sans)}
 .paper[data-design="liner"] .orn svg,.paper[data-design="liner"] .orn i:last-child{display:none}
 .paper[data-design="liner"] .orn i{flex:none;width:1.25in;border-top:1pt solid var(--ink)}
 .paper[data-design="liner"] .sig,.paper[data-design="liner"] .sigt{margin-left:0;margin-right:0;text-align:left}
-.paper[data-design="liner"] .qr-mini{align-items:flex-start}
 /* Pressing: the grooves of the record itself run off the corner of the sheet, in pale sea glass, behind the words */
 .paper[data-design="pressing"]::before,.paper[data-design="pressing"]::after{display:none}
 .paper[data-design="pressing"] .disc{display:none}
@@ -122,9 +141,13 @@ body{margin:0;background:#E3EBED;color:var(--ink);font-family:var(--sans)}
 .mark svg{width:.16in;height:.16in;flex:none}
 @media print{
   body{background:#fff}
-  .bar,.hint,.warn,.mail,.said{display:none !important}
+  .tools,.bar,.hint,.warn,.mail,.said{display:none !important}
   .frame{width:auto !important;height:auto !important;margin:0;overflow:visible}
   .paper{transform:none !important;box-shadow:none}
+  html,body{margin:0;padding:0}
+  .frame,.paper{break-inside:avoid;page-break-inside:avoid}
+  html.fit-print .frame{width:calc(var(--w)*.86) !important;height:calc(var(--h)*.86) !important;margin:0 auto;overflow:hidden}
+  html.fit-print .paper{transform:scale(.86) !important;transform-origin:top left}
 }
 `;
 
@@ -132,6 +155,8 @@ body{margin:0;background:#E3EBED;color:var(--ink);font-family:var(--sans)}
 // It only reads layout sizes that a screen scale doesn't change (offset and scroll sizes).
 const JS = `
 (function(){
+  var ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) || (ua.indexOf('Safari/') >= 0 && !/Chrome|Chromium|Edg|Android/.test(ua))) document.documentElement.classList.add('fit-print');
   var paper = document.querySelector('.paper'), frame = document.querySelector('.frame'), ly = document.querySelector('.ly');
   var title = document.querySelector('.title'), pic = document.querySelector('.pic'), size = document.getElementById('page-size'), warn = document.querySelector('.warn');
   var lines = ly.querySelectorAll('p').length + ly.querySelectorAll('.st').length;
@@ -189,7 +214,7 @@ const JS = `
   });
   // A small QR code at the foot of the sheet, so the framed words can still play the song.
   var qrBox = document.querySelector('.qr-mini'), qrTick = document.getElementById('show-qr');
-  if (qrTick) qrTick.addEventListener('change', function(){ qrBox.hidden = !qrTick.checked; fit(); });
+  if (qrTick) qrTick.addEventListener('change', function(){ qrBox.hidden = !qrTick.checked; paper.classList.toggle('has-qr', qrTick.checked); fit(); });
   var sel = document.getElementById('paper'), show = document.getElementById('show-pic');
   if (sel) sel.addEventListener('change', function(){ paperSize(sel.value === 'a4'); });
   if (show && pic) show.addEventListener('change', function(){ wantPic = show.checked; fit(); });
@@ -276,23 +301,30 @@ function sheetHtml(s) {
 <style id="page-size">@page{size:8.5in 11in;margin:0}</style>
 </head>
 <body>
+<div class="tools">
+<div class="tools-top"><a class="wm" href="/">${MARK}</a><a class="back" href="${esc(s.backUrl)}">Back to the song</a></div>
 <div class="bar">
-  <a href="${esc(s.backUrl)}">Back to the song</a><span class="grow"></span>
-  ${s.photoUrl ? '<label><input type="checkbox" id="show-pic" checked> Show the photo</label>' : ''}
-  <label>Design <select id="design">${DESIGNS.map(d => `<option value="${d[0]}"${d[0] === design ? ' selected' : ''}>${d[1]}</option>`).join('')}</select></label>
-  <label>Paper <select id="paper"><option value="letter">US Letter</option><option value="a4">A4</option></select></label>
-  ${s.qr ? '<label><input type="checkbox" id="show-qr"> Add a QR code that plays the song</label>' : ''}
-  <button type="button" id="mail">Email it to myself</button>
-  <button class="go" type="button" id="print">Print or save as PDF</button>
+  <h1>Lyric sheet</h1>
+  <div class="opts">
+    <label class="pick">Design <select id="design">${DESIGNS.map(d => `<option value="${d[0]}"${d[0] === design ? ' selected' : ''}>${d[1]}</option>`).join('')}</select></label>
+    <label class="pick">Paper <select id="paper"><option value="letter">US Letter</option><option value="a4">A4</option></select></label>
+  </div>
+  ${s.photoUrl ? '<label class="tick"><input type="checkbox" id="show-pic" checked> Show the photo</label>' : ''}
+  ${s.qr ? '<label class="tick"><input type="checkbox" id="show-qr"> Add a QR code that plays the song</label>' : ''}
+  <div class="acts">
+    <button class="go" type="button" id="print">Print or save as PDF</button>
+    <button type="button" id="mail">Email it to myself</button>
+  </div>
+  <div class="mail" hidden>
+    ${s.canEmail ? '<input type="email" id="mail-to" autocomplete="email" inputmode="email" maxlength="200" placeholder="Your email address" aria-label="Your email address"><button type="button" id="mail-go">Send it to me</button>' : '<input id="mail-to" hidden><button type="button" id="mail-go" hidden></button>'}
+    <p id="mail-said" role="status"></p>
+    ${s.canEmail ? '<p>You get the words and the links to the song and this sheet. We use your address for this one email only.</p><button type="button" id="mail-copy" hidden></button>' : '<button type="button" class="plain" id="mail-copy">Copy the link instead</button>'}
+  </div>
+  <p class="said" id="design-said" role="status"></p>
+  <p class="warn" role="status" hidden></p>
+  <p class="hint">For framing, print at 100% (no "fit to page") on heavy paper. To keep a copy, choose "Save as PDF".</p>
 </div>
-<div class="mail" hidden>
-  ${s.canEmail ? '<input type="email" id="mail-to" autocomplete="email" inputmode="email" maxlength="200" placeholder="Your email address" aria-label="Your email address"><button type="button" id="mail-go">Send it to me</button>' : '<input id="mail-to" hidden><button type="button" id="mail-go" hidden></button>'}
-  <p id="mail-said" role="status"></p>
-  ${s.canEmail ? '<p>You get the words and the links to the song and this sheet. We use your address for this one email only.</p><button type="button" id="mail-copy" hidden></button>' : '<button type="button" class="plain" id="mail-copy">Copy the link instead</button>'}
 </div>
-<p class="hint">To keep a copy, choose "Save as PDF" in the print window. For framing, print at 100% (no "fit to page") on heavy paper.</p>
-<p class="said" id="design-said" role="status"></p>
-<p class="warn" role="status" hidden></p>
 <div class="frame">
   <div class="paper" data-design="${design}">
     ${grooves}
@@ -350,15 +382,28 @@ const CARD_CSS = `
   --sans:"Jost","Avenir Next","Century Gothic","Helvetica Neue",Arial,sans-serif}
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-body{margin:0;background:#E3EBED;color:#0E2A33;font-family:var(--sans)}
-.bar{max-width:820px;margin:0 auto;padding:16px 16px 4px;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center}
-.bar a{color:inherit;font-size:.92rem}
-.bar .grow{flex:1}
-.bar button,.bar select{font:inherit;font-size:.92rem;padding:9px 16px;border:1px solid #0E2A33;border-radius:3px;background:transparent;color:#0E2A33;cursor:pointer}
-.bar button.go{background:#0E2A33;color:#fff}
-.bar label{font-size:.92rem;display:inline-flex;align-items:center;gap:6px}
-.hint{max-width:820px;margin:0 auto;padding:6px 16px 14px;font-size:.86rem;color:#52686E}
-.frame{margin:0 auto 40px;overflow:hidden}
+body{margin:0;background:#6CBCCB;color:#0E2A33;font-family:var(--sans)}
+/* the controls above the sheet: the Songpost name, then one white card, dressed like the rest of the site */
+.tools{max-width:820px;margin:0 auto;padding:18px 16px 0}
+.tools-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 2px 14px}
+.wm{display:inline-flex;align-items:center;gap:8px;font:600 1.6rem/1 var(--serif);letter-spacing:.01em;color:#0E2A33;text-decoration:none}
+.wm svg{width:.86em;height:.86em;flex:none}
+.back{font-size:.92rem;font-weight:500;color:#0E2A33;text-underline-offset:5px;text-decoration-thickness:1px}
+.bar{background:#fff;border-radius:26px;padding:22px 22px 18px;box-shadow:0 30px 54px -30px rgba(6,40,50,.5);display:grid;gap:16px}
+.bar h1{font:500 2rem/1.1 var(--serif);margin:0}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
+.pick{display:block;font-size:.86rem;font-weight:500;letter-spacing:.02em}
+.pick select{display:block;width:100%;margin-top:6px;font:inherit;font-size:1.02rem;font-weight:400;letter-spacing:0;padding:12px 14px;border:1.5px solid transparent;border-radius:14px;background-color:#EAF5F7;color:#0E2A33;cursor:pointer}
+.pick select:focus-visible{outline:none;border-color:#0E2A33}
+.tick{display:flex;align-items:center;gap:10px;font-size:.98rem;cursor:pointer}
+.tick input{flex:none;width:20px;height:20px;margin:0;accent-color:#0E2A33}
+.acts{display:flex;flex-wrap:wrap;gap:10px}
+.bar button{font:inherit;font-weight:500;font-size:.98rem;letter-spacing:.02em;line-height:1.2;padding:13px 24px;border:0;border-radius:999px;background:#EAF5F7;color:#0E2A33;cursor:pointer}
+.bar button:active{transform:scale(.97)}
+.bar button:focus-visible{outline:2px solid #0E2A33;outline-offset:3px}
+.bar button.go{background:#0E2A33;color:#fff;box-shadow:0 10px 20px -12px rgba(6,40,50,.45)}
+.hint{margin:0;font-size:.88rem;line-height:1.5;color:#52686E}
+.frame{margin:20px auto 44px;overflow:hidden}
 .paper{width:var(--w);height:var(--h);background:#fff;position:relative;transform-origin:top left;display:flex;align-items:center;justify-content:center;box-shadow:0 30px 60px -30px rgba(6,40,50,.5)}
 .cut{position:relative;width:var(--cw);height:var(--ch)}
 .cut > i{position:absolute;background:#8B949F}
@@ -400,13 +445,19 @@ body{margin:0;background:#E3EBED;color:#0E2A33;font-family:var(--sans)}
 .card.tag .c-mark{margin-top:.5em;font-size:.95em}
 @media print{
   body{background:#fff}
-  .bar,.hint{display:none !important}
+  .tools,.bar,.hint{display:none !important}
   .frame{width:auto !important;height:auto !important;margin:0;overflow:visible}
   .paper{transform:none !important;box-shadow:none}
+  html,body{margin:0;padding:0}
+  .frame,.paper{break-inside:avoid;page-break-inside:avoid}
+  html.fit-print .frame{width:calc(var(--w)*.86) !important;height:calc(var(--h)*.86) !important;margin:0 auto;overflow:hidden}
+  html.fit-print .paper{transform:scale(.86) !important;transform-origin:top left}
 }
 `;
 const CARD_JS = `
 (function(){
+  var ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) || (ua.indexOf('Safari/') >= 0 && !/Chrome|Chromium|Edg|Android/.test(ua))) document.documentElement.classList.add('fit-print');
   var root = document.documentElement, paper = document.querySelector('.paper'), frame = document.querySelector('.frame');
   var card = document.querySelector('.card'), name = document.querySelector('.c-name'), page = document.getElementById('page-size');
   var size = document.getElementById('size'), sheet = document.getElementById('paper'), tone = document.getElementById('tone');
@@ -463,14 +514,19 @@ function qrCardHtml(s) {
 <style id="page-size">@page{size:8.5in 11in;margin:0}</style>
 </head>
 <body>
+<div class="tools">
+<div class="tools-top"><a class="wm" href="/">${MARK}</a><a class="back" href="${esc(s.backUrl)}">Back to the song</a></div>
 <div class="bar">
-  <a href="${esc(s.backUrl)}">Back to the song</a><span class="grow"></span>
-  <label>Colour <select id="tone"><option value="blue">Sea glass</option><option value="white">White (less ink)</option></select></label>
-  <label>Size <select id="size"><option value="card">Card, 5 by 7 in</option><option value="tag">Gift tag, 3.5 in square</option></select></label>
-  <label>Paper <select id="paper"><option value="letter">US Letter</option><option value="a4">A4</option></select></label>
-  <button class="go" type="button" id="print">Print or save as PDF</button>
+  <h1>A card to print</h1>
+  <div class="opts">
+    <label class="pick">Colour <select id="tone"><option value="blue">Sea glass</option><option value="white">White (less ink)</option></select></label>
+    <label class="pick">Size <select id="size"><option value="card">Card, 5 by 7 in</option><option value="tag">Gift tag, 3.5 in square</option></select></label>
+    <label class="pick">Paper <select id="paper"><option value="letter">US Letter</option><option value="a4">A4</option></select></label>
+  </div>
+  <div class="acts"><button class="go" type="button" id="print">Print or save as PDF</button></div>
+  <p class="hint">Print at 100% (no "fit to page") on heavy paper and cut along the corner marks. When ${esc(s.recipient)} points a phone's camera at the square, the song opens.</p>
 </div>
-<p class="hint">Print at 100% (no "fit to page") on heavy paper, then cut along the corner marks. Tuck it into a card, or tie it to flowers or a gift. When ${esc(s.recipient)} points a phone's camera at the square, the song opens.</p>
+</div>
 <div class="frame">
   <div class="paper">
     <div class="cut">${mark('tl')}${mark('tr')}${mark('bl')}${mark('br')}
