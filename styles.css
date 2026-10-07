@@ -83,7 +83,9 @@ button,input,textarea{font:inherit;color:inherit}
 .record > svg{display:block;width:100%;height:100%}
 .record::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
   background:conic-gradient(from 18deg,var(--shine) 0deg,transparent 32deg,var(--shade) 82deg,transparent 128deg,var(--shine) 182deg,transparent 216deg,var(--shade) 272deg,transparent 324deg,var(--shine) 360deg);
-  -webkit-mask:radial-gradient(circle,transparent 53.5%,#000 54.5%);mask:radial-gradient(circle,transparent 53.5%,#000 54.5%)}
+  /* the shine lies on the outer band of the record only: it starts outside the label and stops just inside the record's own edge,
+     so none of it shows as a pale rim on the page behind */
+  -webkit-mask:radial-gradient(circle closest-side,transparent 75.6%,#000 77%,#000 97%,transparent 98.4%);mask:radial-gradient(circle closest-side,transparent 75.6%,#000 77%,#000 97%,transparent 98.4%)}
 .record.spinning::after{animation:spin 3.6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){.record.spinning::after,.rec-stage:has(.record.spinning) .hb,.rec-stage:has(.record.spinning) .hl{animation:none}}

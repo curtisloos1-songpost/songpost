@@ -986,7 +986,7 @@ app.get(['/icon-48.png', '/icon-180.png', '/icon-192.png', '/icon-512.png', '/fa
 app.get('/manifest.webmanifest', (req, res) => res.type('application/manifest+json').set('Cache-Control', 'public, max-age=3600').send(JSON.stringify({
   name: 'Songpost', short_name: 'Songpost', description: 'Turn their story or theme into a song.', lang: 'en', id: '/', start_url: '/', scope: '/',
   display: 'standalone', background_color: '#6CBCCB', theme_color: '#6CBCCB',
-  icons: [192, 512].flatMap(n => ['any', 'maskable'].map(purpose => ({ src: `/icon-${n}.png`, sizes: `${n}x${n}`, type: 'image/png', purpose }))),
+  icons: [192, 512].flatMap(n => ['any', 'maskable'].map(purpose => ({ src: `/icon-${n}.png?v=2`, sizes: `${n}x${n}`, type: 'image/png', purpose }))),
 })));
 app.get('/share.png', (req, res) => {
   let png = null;

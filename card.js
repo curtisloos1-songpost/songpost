@@ -112,6 +112,13 @@ function cardPng(o) {
 /* ---------- the Songpost mark, as pictures ---------- */
 // The same gold record with a heart on its white label that sits beside the name at the top of every page.
 const MARK = `<circle cx="12" cy="12" r="11.3" fill="#D3A53A" stroke="#9A7218" stroke-width="1"/><circle cx="12" cy="12" r="7" fill="#FFFFFF"/><path d="${HEART}" transform="translate(12 12) scale(.0504) translate(0 -18)" fill="#0E2A33"/>`;
+// The record in full, as the logo is drawn large: shaded gold, two grooves, a rimmed white label and the heart. On a 200 by 200 square.
+// The flat mark above is the same record made simple enough to read at the size of a line of text or a browser tab.
+const RECORD = `<defs><radialGradient id="spFace" cx="34%" cy="28%" r="82%"><stop offset="0" stop-color="#FFF3CC"/><stop offset=".5" stop-color="#D3A53A"/><stop offset="1" stop-color="#9A7218"/></radialGradient></defs>
+<circle cx="100" cy="100" r="95" fill="url(#spFace)" stroke="#8A6414" stroke-width="4"/>
+<circle cx="100" cy="100" r="82" fill="none" stroke="#7A560E" stroke-width="1.4" opacity=".45"/><circle cx="100" cy="100" r="71" fill="none" stroke="#7A560E" stroke-width="1.4" opacity=".45"/>
+<circle cx="100" cy="100" r="58" fill="#FFFFFF" stroke="#8A6414" stroke-width="2"/>
+<path d="${HEART}" transform="translate(100 100) scale(.42) translate(0 -18)" fill="#0E2A33"/>`;
 // The browser-tab icon.
 const iconSvg = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${MARK}</svg>`;
 // A square icon. Small ones are the record alone. Large ones are for a phone's home screen, which needs a filled square: the record on sea glass.
@@ -122,7 +129,7 @@ function iconPng(size) {
   if (!t || !ICON_SIZES.includes(size)) return null;
   if (keptIcons.has(size)) return keptIcons.get(size);
   const svg = size <= 64 ? `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24">${MARK}</svg>`
-    : `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"><rect width="24" height="24" fill="#6CBCCB"/><g transform="translate(12 12) scale(.74) translate(-12 -12)">${MARK}</g></svg>`;
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 200 200"><rect width="200" height="200" fill="#6CBCCB"/><g transform="translate(100 100) scale(.76) translate(-100 -100)">${RECORD}</g></svg>`;
   const png = new t.Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng();
   keptIcons.set(size, png);
   return png;
@@ -133,7 +140,7 @@ function shareSvg() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <rect width="1200" height="630" fill="#6CBCCB"/>
   <g fill="none" stroke="#fff" stroke-opacity=".16" stroke-width="1.5"><circle cx="600" cy="315" r="300"/><circle cx="600" cy="315" r="350"/><circle cx="600" cy="315" r="410"/><circle cx="600" cy="315" r="480"/><circle cx="600" cy="315" r="560"/></g>
-  <g transform="translate(196 198) scale(6.6)">${MARK}</g>
+  <g transform="translate(196 198) scale(.792)">${RECORD}</g>
   <text x="384" y="330" font-family="Cormorant Garamond" font-weight="600" font-size="176" fill="#0E2A33">Songpost</text>
   <text x="600" y="452" text-anchor="middle" font-family="Cormorant Garamond" font-style="italic" font-weight="500" font-size="46" fill="#0E2A33">Turn their story or theme into a song</text>
 </svg>`;
