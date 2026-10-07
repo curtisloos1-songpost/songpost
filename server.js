@@ -1043,7 +1043,7 @@ app.get('/g/:id', (req, res) => {
   const live = o && o.paid && !o.removed;
   if (live && req.query.q === '1') { try { db.addUsage('gift_qr_open', 1, 0); } catch (e) { /* not counted */ } }
   const title = live ? `A song written for ${o.recipient}, from ${o.sender}` : 'Songpost';
-  const desc = live ? `"${shown(o).title}" - break the seal to hear it.` : 'Turn their story or theme into a song.';
+  const desc = live ? `"${shown(o).title}" - open the envelope to hear it.` : 'Turn their story or theme into a song.';
   // With a picture, a text message shows the record with their name on it and not a bare link. The address changes with
   // what is on the record, so an app that has kept an old picture asks for the new one.
   const stamp = live ? crypto.createHash('sha1').update([o.recipient, o.sender, shown(o).title, o.tier].join('|')).digest('hex').slice(0, 8) : '';

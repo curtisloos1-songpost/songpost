@@ -11,7 +11,7 @@ const HEART = 'M0,-30C-25,-75 -100,-55 -100,-5C-100,45 -40,75 0,110C40,75 100,45
 // The looks a lyric sheet can have: [what it is called in the address, what the person choosing sees].
 const DESIGNS = [['classic', 'Classic'], ['seaglass', 'Sea glass'], ['gold', 'Gold record'], ['midnight', 'Midnight (uses more ink)'], ['liner', 'Liner notes'], ['pressing', 'Pressing']];
 // The Songpost mark as it appears on the site: the gold record with its heart, and the name. It closes every sheet and card.
-const MARK = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#D3A53A" stroke="#9A7218" stroke-width="1"/><circle cx="12" cy="12" r="6.2" fill="#FFFFFF"/><path d="${HEART}" transform="translate(12 12) scale(.036) translate(0 -24)" fill="#0E2A33"/></svg><span>Songpost</span>`;
+const MARK = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11.3" fill="#D3A53A" stroke="#9A7218" stroke-width="1"/><circle cx="12" cy="12" r="7" fill="#FFFFFF"/><path d="${HEART}" transform="translate(12 12) scale(.0504) translate(0 -18)" fill="#0E2A33"/></svg><span>Songpost</span>`;
 
 const CSS = `
 :root{--ink:#0E2A33;--soft:#52686E;--silver:#8B949F;--pale:#C8CED6;--w:8.5in;--h:11in;

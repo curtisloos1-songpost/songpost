@@ -305,20 +305,14 @@ legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;padding:0;margin-bo
 .env-name{font-family:var(--serif);font-style:italic;font-weight:600;line-height:1.1;max-width:100%;overflow-wrap:anywhere;text-align:center}
 .env-flap{position:absolute;inset:0;transform-origin:50% 0;transition:transform .7s cubic-bezier(.3,.7,.2,1);filter:drop-shadow(0 2px 2px rgba(14,42,51,.22));z-index:1}
 .env-flap i{position:absolute;inset:0;border-radius:7px 7px 0 0;background:linear-gradient(180deg,#F3EDE0,#FBF7EE);clip-path:polygon(0 0,100% 0,50% 51%)}
-.seal{position:absolute;left:50%;top:47%;width:68px;height:68px;margin:-34px 0 0 -34px;filter:drop-shadow(0 4px 4px rgba(0,0,0,.28));padding:0;border:0;border-radius:50%;background:none;cursor:pointer;z-index:2;color:var(--plate-ink);
+.seal{position:absolute;left:50%;top:47%;width:74px;height:74px;margin:-39px 0 0 -37px;filter:drop-shadow(0 5px 5px rgba(0,0,0,.3));padding:0;border:0;border-radius:50%;background:none;cursor:pointer;z-index:2;
   animation:sealbeat 2.4s ease-in-out infinite}
-.seal i{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 34% 28%,var(--plate-a),var(--plate-b) 72%);
-  box-shadow:inset 0 0 0 4px rgba(255,255,255,.22),inset 0 -4px 7px rgba(0,0,0,.2);transition:transform .5s ease,opacity .5s ease}
-.seal .seal-l{clip-path:polygon(0 0,53% 0,45% 28%,55% 52%,46% 76%,50% 100%,0 100%)}
-.seal .seal-r{clip-path:polygon(53% 0,100% 0,100% 100%,50% 100%,46% 76%,55% 52%,45% 28%)}
-.seal .seal-c{transition:opacity .08s linear}
-.seal svg{position:absolute;left:50%;top:50%;width:27px;height:27px;margin:-12px 0 0 -13.5px;fill:currentColor;opacity:.7;transition:opacity .2s ease}
+/* the seal is the record. It turns and lifts away as the envelope opens */
+.seal-rec{position:absolute;inset:0;width:100%;height:100%;display:block;transition:transform .9s cubic-bezier(.3,.6,.2,1),opacity .4s ease .45s}
 .seal:focus-visible{outline:2px solid var(--on-field);outline-offset:6px}
 @keyframes sealbeat{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
 .env.open .seal{animation:none;pointer-events:none}
-.env.open .seal-l{transform:translate(-16px,8px) rotate(-16deg);opacity:0}
-.env.open .seal-r{transform:translate(16px,8px) rotate(16deg);opacity:0}
-.env.open .seal svg,.env.open .seal-c{opacity:0}
+.env.open .seal-rec{transform:translateY(-30px) rotate(320deg) scale(1.14);opacity:0}
 .env.open .env-flap{transform:rotateX(178deg);transition-delay:.28s}
 .env-hint{font-size:.95rem;letter-spacing:.02em;color:var(--on-field-soft);margin:0;transition:opacity .3s ease}
 .env-hint.gone{opacity:0}
@@ -326,7 +320,7 @@ legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;padding:0;margin-bo
 .inside.reveal > .for,.inside.reveal > h1,.inside.reveal > .by,.inside.reveal > .from-all,.inside.reveal > .rec-stage{animation:rise .7s ease both}
 .gift h1:focus{outline:none}
 .gift .by{font-family:var(--serif);font-style:italic;font-size:1.5rem;color:var(--brass);margin:6px 0 0}
-@media (prefers-reduced-motion: reduce){.seal{animation:none}.env-flap,.seal i,.arrive.away{transition:none}.inside.reveal > *{animation:none !important}}
+@media (prefers-reduced-motion: reduce){.seal{animation:none}.env-flap,.seal-rec,.arrive.away{transition:none}.inside.reveal > *{animation:none !important}}
 /* the gift page: the sender's touches */
 .btn.voice-again{display:block;margin:6px 0 0;padding-left:0}
 .g-sig{margin-top:12px;color:var(--ink)}

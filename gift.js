@@ -9,7 +9,6 @@ const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: re
 let fromSender = new URLSearchParams(location.search).has("sender");
 try { if ((JSON.parse(localStorage.getItem("songpost-mine-v1") || "[]") || []).indexOf(id) >= 0) fromSender = true; } catch (e) {}
 
-const HEART = '<svg viewBox="-110 -80 220 200" aria-hidden="true" focusable="false"><path d="M0,-30C-25,-75 -100,-55 -100,-5C-100,45 -40,75 0,110C40,75 100,45 100,-5C100,-55 25,-75 0,-30Z"/></svg>';
 
 api("/api/gift/" + encodeURIComponent(id)).then(g => {
   root.textContent = "";
@@ -26,10 +25,17 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   nm.style.fontSize = Math.max(1.05, Math.min(2.3, 15 / Math.max(g.recipient.length, 5))).toFixed(2) + "rem"; // a long name is written smaller
   front.append(el("span", "env-for", "for"), nm);
   const flap = el("div", "env-flap"); flap.append(el("i"));
-  const seal = el("button", "seal"); seal.type = "button"; seal.setAttribute("aria-label", "Break the seal to open your song");
-  seal.innerHTML = '<i class="seal-l"></i><i class="seal-r"></i><i class="seal-c"></i>' + HEART;
+  const seal = el("button", "seal"); seal.type = "button"; seal.setAttribute("aria-label", "Open your song");
+  // The seal is the Songpost record: gold or platinum, like the one inside. When the envelope opens it turns and lifts away.
+  seal.innerHTML = '<svg class="seal-rec" viewBox="0 0 200 200" aria-hidden="true" focusable="false"><defs><radialGradient id="seal-shine" cx="34%" cy="28%" r="82%">'
+    + '<stop offset="0" stop-color="#fff" stop-opacity=".8"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></radialGradient></defs>'
+    + '<circle cx="100" cy="100" r="96" fill="var(--disc)"/><circle cx="100" cy="100" r="96" fill="url(#seal-shine)"/>'
+    + '<circle cx="100" cy="100" r="96" fill="none" stroke="var(--disc-edge)" stroke-width="4"/>'
+    + '<circle cx="100" cy="100" r="83" fill="none" stroke="var(--groove)" stroke-width="2"/><circle cx="100" cy="100" r="72" fill="none" stroke="var(--groove)" stroke-width="2"/>'
+    + '<circle cx="100" cy="100" r="58" fill="#fff" stroke="var(--disc-edge)" stroke-width="2"/>'
+    + '<path d="M0,-30C-25,-75 -100,-55 -100,-5C-100,45 -40,75 0,110C40,75 100,45 100,-5C100,-55 25,-75 0,-30Z" transform="translate(100 100) scale(.42) translate(0 -18)" fill="#0E2A33"/></svg>';
   env.append(el("div", "env-back"), front, flap, seal);
-  const hint = el("p", "env-hint", "Break the seal to open it. Your song starts playing.");
+  const hint = el("p", "env-hint", "Tap the seal to open it. Your song starts playing.");
   arrive.append(env, hint);
   if (fromSender) arrive.append(el("p", "status-line preview-note", "You're looking at " + g.recipient + "'s page as the sender. Opening it here isn't counted as their first listen."));
   root.append(arrive);
@@ -340,7 +346,7 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
       e.stopPropagation();
       if (await camera()){
         armed = true; arm.hidden = true; pillGo.hidden = true; pillSay.textContent = "Starts when you open it.";
-        armNote.textContent = "You're on camera. Break the seal when you're ready. Nothing is sent unless you choose to send it.";
+        armNote.textContent = "You're on camera. Open it when you're ready. Nothing is sent unless you choose to send it.";
       } else armNote.textContent = "We couldn't use your camera. You can still open your song.";
     });
     cameraOff = () => { arm.hidden = false; armNote.textContent = ""; };
@@ -371,7 +377,7 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   });
   rep.append(repBtn); sheet.append(rep);
 
-  // The one big moment: the seal breaks, the envelope opens, the record turns, and the sender's voice or the song begins.
+  // The one big moment: the seal turns and lifts away, the envelope opens, the record turns, and the sender's voice or the song begins.
   let opened = false;
   function open(){
     if (opened) return; opened = true;
