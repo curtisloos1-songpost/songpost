@@ -25,11 +25,12 @@ const PROVIDERS = {
   // example: async ({ to, subject, body }) => { ...call your email or SMS service... }
 };
 if (cfg.resendKey && cfg.mailFrom) {
-  PROVIDERS.resend = async ({ to, subject, body }) => {
+  PROVIDERS.resend = async ({ to, subject, body, files }) => {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.resendKey },
-      body: JSON.stringify(Object.assign({ from: cfg.mailFrom, to: [to], subject, text: body }, cfg.mailReplyTo ? { reply_to: cfg.mailReplyTo } : {})),
+      body: JSON.stringify(Object.assign({ from: cfg.mailFrom, to: [to], subject, text: body }, cfg.mailReplyTo ? { reply_to: cfg.mailReplyTo } : {},
+        files && files.length ? { attachments: files.map(f => ({ filename: f.filename, content: f.content.toString('base64') })) } : {})),
       signal: AbortSignal.timeout(20000),
     });
     if (res.ok) return;
@@ -40,12 +41,13 @@ if (cfg.resendKey && cfg.mailFrom) {
   };
 }
 if (cfg.devMocks) {
-  PROVIDERS.console = async ({ to, subject }) => { console.log(`PRACTICE MESSAGE (not really sent) to ${to}: ${subject}`); };
+  PROVIDERS.console = async ({ to, subject, files }) => { console.log(`PRACTICE MESSAGE (not really sent) to ${to}: ${subject}${files && files.length ? ` [with ${files.map(f => `${f.filename}, ${f.content.length} bytes`).join('; ')}]` : ''}`); };
   PROVIDERS.console.texts = true;
 }
 
 const MAX_TRIES = 6;
-const hooks = { delivered: null, failed: null };
+// hooks.files(row): for a message that carries a file, makes it now. Resolves to [{ filename, content (a Buffer) }]; an empty list sends the message without it.
+const hooks = { delivered: null, failed: null, files: null };
 const inFlight = new Set();
 
 const live = () => !!PROVIDERS[cfg.messageProvider];
@@ -58,7 +60,9 @@ async function attempt(row) {
   if (!provider || !row || row.sent_at || row.failed_at || inFlight.has(row.id)) return;
   inFlight.add(row.id);
   try {
-    await provider({ to: row.to_contact, subject: row.subject, body: row.body });
+    let files = [];
+    if (row.attach && hooks.files) { try { files = (await hooks.files(row)) || []; } catch (e) { console.error(`The file for message ${row.id} could not be made, so it goes without it:`, e && e.message); } }
+    await provider({ to: row.to_contact, subject: row.subject, body: row.body, files });
     db.markMessageSent(row.id);
     db.noteOk('messages');
     if (hooks.delivered) hooks.delivered(row);
@@ -78,10 +82,10 @@ async function attempt(row) {
 }
 
 // Queues a message and tries to deliver it. tag marks messages that something else is waiting on.
-function send(orderId, to, subject, body, tag) {
+function send(orderId, to, subject, body, tag, attach) {
   to = String(to || '').trim();
   if (!to) return null;
-  const id = db.queueMessage(orderId, to, subject, body, tag);
+  const id = db.queueMessage(orderId, to, subject, body, tag, attach);
   // A mobile number, with a service that only sends email: there is nothing to retry and nothing wrong with the service.
   if (live() && !isEmail(to) && !canText()) {
     db.markMessageTried(id, 0, null, Date.now());

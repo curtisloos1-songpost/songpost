@@ -111,6 +111,13 @@
               <div class="row"><button class="btn small primary" type="button" id="occ-use">Yes, use that</button><button class="btn small" type="button" id="occ-keep">No, keep mine</button></div>
             </div>
           </fieldset>
+          <fieldset id="rec-names" hidden>
+            <legend>What should the record name?</legend>
+            <div class="chips" role="group" aria-label="What the record names">
+              <button class="chip" type="button" data-names="theme" aria-pressed="true">The theme</button>
+              <button class="chip" type="button" data-names="name" aria-pressed="false">Their name</button>
+            </div>
+          </fieldset>
           <label class="field">Your name, as they'll see it
             <input data-bind="sender" maxlength="40" autocomplete="off">
           </label>
@@ -326,6 +333,23 @@
           <div class="touches" id="touch-box" hidden>
             <p class="legend">Make it yours <span class="opt">optional</span></p>
             <p class="status-line" id="touch-lede"></p>
+            <details class="promise touch" id="title-box">
+              <summary><span id="title-sum">Change the title</span></summary>
+              <p class="status-line">The recording stays the same. Only the name on the record changes.</p>
+              <label class="field">Song title
+                <input class="plain boxed" id="title-in" maxlength="80" autocomplete="off">
+              </label>
+              <div class="row"><button class="btn small" type="button" id="title-save">Save the title</button></div>
+              <div id="title-names" hidden>
+                <p class="legend" id="title-names-l">The record names</p>
+                <div class="chips" role="group" aria-labelledby="title-names-l">
+                  <button class="chip" type="button" data-names="theme" aria-pressed="false">The theme</button>
+                  <button class="chip" type="button" data-names="name" aria-pressed="false">Their name</button>
+                </div>
+              </div>
+              <p class="status-line" id="title-note" role="status"></p>
+              <p class="err" role="alert" id="title-err"></p>
+            </details>
             <details class="promise touch" id="voice-box">
               <summary><span id="voice-sum">Say a few words in your own voice</span></summary>
               <p class="status-line" id="voice-lede"></p>
@@ -492,6 +516,18 @@
             <div class="row"><button class="btn" type="button" id="redo-btn">Record it again</button></div>
             <p class="err" role="alert" id="redo-err"></p>
           </details>
+          <div class="after-pay remove-row" id="remove-box" hidden>
+            <button class="btn quiet small" type="button" id="remove-open">Remove this song</button>
+          </div>
+          <dialog class="confirm" id="remove-ask" aria-labelledby="remove-h">
+            <h2 id="remove-h">Remove this song?</h2>
+            <p id="remove-say"></p>
+            <div class="row">
+              <button class="btn primary" type="button" id="remove-yes">Remove it</button>
+              <button class="btn" type="button" id="remove-no">Keep it</button>
+            </div>
+            <p class="err" role="alert" id="remove-err"></p>
+          </dialog>
         </div>
         </div>
       </div>

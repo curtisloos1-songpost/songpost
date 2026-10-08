@@ -85,6 +85,8 @@ addColumns('replies', ['featured INTEGER NOT NULL DEFAULT 0']);
 addColumns('orders', ['photo_share INTEGER NOT NULL DEFAULT 0']);
 // sheet_design: the look the sender chose for the lyric sheet (see DESIGNS in sheet.js). Empty means the classic one.
 addColumns('orders', ['sheet_design TEXT']);
+// theme: for a theme song, the few words of its theme, as shown on the record. removed_by + removed_at: who took a song down (buyer | owner), and when.
+addColumns('orders', ['theme TEXT', 'removed_by TEXT', 'removed_at INTEGER', 'record_names TEXT']); // record_names: 'name' when a theme song's record names the person instead
 addColumns('replies', ['photo_ok INTEGER NOT NULL DEFAULT 0', 'photo_featured INTEGER NOT NULL DEFAULT 0']);
 // A video the recipient recorded for the buyer. share_ok: the recipient allows Songpost to show it to others.
 // One-tap reactions from the person a song is for: a heart, a laugh. Each tap is one row.
@@ -93,7 +95,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS taps (id INTEGER PRIMARY KEY AUTOINCREMENT, 
 db.exec(`CREATE TABLE IF NOT EXISTS reactions (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, file TEXT, mime TEXT,
   bytes INTEGER, seconds INTEGER, share_ok INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL)`);
 // tag: what a message is for, when something has to happen once it is delivered ("schedule").
-addColumns('outbox', ['attempts INTEGER NOT NULL DEFAULT 0', 'next_try_at INTEGER', 'failed_at INTEGER', 'tag TEXT']);
+addColumns('outbox', ['attempts INTEGER NOT NULL DEFAULT 0', 'next_try_at INTEGER', 'failed_at INTEGER', 'tag TEXT', 'attach TEXT']); // attach: a file to send with it, as a note of what to make (never the file itself)
 
 // A part's id is never used twice (AUTOINCREMENT), so "whose memories the lyrics were written from" can't point at a later arrival.
 // A song made together. The organizer holds the key; anyone with the id (the invite link) can add their memories
@@ -118,7 +120,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY AUTOINCREMEN
 
 const COLUMNS = ['status', 'error', 'paid', 'paid_at', 'price_cents', 'stripe_session', 'title', 'lyrics', 'style', 'note',
   'takes_json', 'chosen', 'attempts', 'engine', 'gen_started_at', 'tier', 'schedule_to', 'schedule_date', 'schedule_sent_at',
-  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement', 'premium', 'photo', 'words', 'signature', 'spoken', 'photo_share', 'sheet_design'];
+  'removed', 'first_played_at', 'gen_kind', 'gen_event_id', 'redo_at', 'schedule_queued_at', 'schedule_failed_at', 'heard', 'arrangement', 'premium', 'photo', 'words', 'signature', 'spoken', 'photo_share', 'sheet_design', 'theme', 'removed_by', 'removed_at', 'record_names'];
 
 function hydrate(row) {
   if (!row) return null;
@@ -149,11 +151,11 @@ module.exports = {
   createOrder(o) {
     db.prepare(`INSERT INTO orders (id, key, created_at, status, price_cents, recipient, sender, relationship, occasion,
       tone, genre, voice, details, title, lyrics, style, note, attempts, ip, language, say_name, contact, gen_started_at, gen_kind, gen_event_id,
-      group_id, group_names, via, from_order, chain_depth, ref_code, heard, arrangement, answers_json, again_of)
+      group_id, group_names, via, from_order, chain_depth, ref_code, heard, arrangement, answers_json, again_of, theme, record_names)
       VALUES (@id, @key, @created_at, @status, @price_cents, @recipient, @sender, @relationship, @occasion,
       @tone, @genre, @voice, @details, @title, @lyrics, @style, @note, @attempts, @ip, @language, @say_name, @contact, @gen_started_at, @gen_kind, @gen_event_id,
-      @group_id, @group_names, @via, @from_order, @chain_depth, @ref_code, @heard, @arrangement, @answers_json, @again_of)`)
-      .run(Object.assign({ gen_kind: 'take', gen_event_id: null, group_id: null, group_names: null, via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null, arrangement: '', answers_json: '[]', again_of: null }, o));
+      @group_id, @group_names, @via, @from_order, @chain_depth, @ref_code, @heard, @arrangement, @answers_json, @again_of, @theme, @record_names)`)
+      .run(Object.assign({ gen_kind: 'take', gen_event_id: null, group_id: null, group_names: null, via: null, from_order: null, chain_depth: 0, ref_code: null, heard: null, arrangement: '', answers_json: '[]', again_of: null, theme: null, record_names: null }, o));
   },
   getOrder(id) {
     return hydrate(db.prepare('SELECT * FROM orders WHERE id = ?').get(String(id || '')));
@@ -184,6 +186,10 @@ module.exports = {
       WHERE COALESCE(stripe_session, '') <> 'own'`).get(); // the owner's own uploads are not songs the site recorded or sold
   },
   // Paid songs whose send date has arrived and whose message has not been queued yet.
+  // Songs their buyer took down before the cutoff: their pages have been off since, and now they are deleted for good.
+  buyerRemovedBefore(beforeMs) {
+    return db.prepare("SELECT id FROM orders WHERE removed = 1 AND removed_by = 'buyer' AND removed_at IS NOT NULL AND removed_at < ?").all(beforeMs).map(r => r.id);
+  },
   dueSchedules(cutoffDay) {
     return db.prepare(`SELECT * FROM orders WHERE paid = 1 AND removed = 0 AND schedule_date IS NOT NULL
       AND schedule_sent_at IS NULL AND schedule_queued_at IS NULL AND schedule_date <= ?`).all(cutoffDay).map(hydrate);
@@ -386,9 +392,9 @@ module.exports = {
   addReport(orderId, body) { db.prepare('INSERT INTO reports (order_id, body, at) VALUES (?, ?, ?)').run(orderId, body, Date.now()); },
   listReports(limit = 200) { return db.prepare('SELECT * FROM reports ORDER BY at DESC LIMIT ?').all(limit); },
 
-  queueMessage(orderId, to, subject, body, tag) {
-    return db.prepare('INSERT INTO outbox (order_id, to_contact, subject, body, created_at, tag) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(orderId, to, subject, body, Date.now(), tag || null).lastInsertRowid;
+  queueMessage(orderId, to, subject, body, tag, attach) {
+    return db.prepare('INSERT INTO outbox (order_id, to_contact, subject, body, created_at, tag, attach) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(orderId, to, subject, body, Date.now(), tag || null, attach || null).lastInsertRowid;
   },
   getMessage(id) { return db.prepare('SELECT * FROM outbox WHERE id = ?').get(id); },
   markMessageSent(id) { db.prepare('UPDATE outbox SET sent_at = ? WHERE id = ?').run(Date.now(), id); },

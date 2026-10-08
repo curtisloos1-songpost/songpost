@@ -17,7 +17,7 @@ const SHOW = { occasion: 6, tone: 5, genre: 5, language: 7, instruments: 6 }; //
 // suggestNote: the line that explains the suggestion. suggestedFor: the story it was made from.
 const blank = () => ({recipient:"",relationship:"",occasion:"A favorite memory",sender:"",a1:"",a2:"",a3:"",a4:"",mention:"",leaveOut:"",sayName:"",email:"",
   tone:"Heartfelt",genre:"Acoustic folk",voice:"No preference",tempo:"Let the song decide",language:"English",inspiration:"",title:"",lyrics:"",style:"",note:"",
-  soundBy:"",suggestNote:"",suggestedFor:"",occasionOther:"",english:"",groupUsed:"",instruments:"",arrangement:""});
+  soundBy:"",suggestNote:"",suggestedFor:"",occasionOther:"",english:"",groupUsed:"",instruments:"",arrangement:"",recordNames:"theme"});
 // A song about a subject (young love, growing old) rather than about the person's own story.
 const THEME = "A theme or feeling";
 // "Another occasion" lets the customer type any day at all. occasion() is what the song is really for.
@@ -32,6 +32,7 @@ let site = { priceGoldCents: 2499, pricePlatinumCents: 3999, previewSeconds: 30,
 // A song made together. grp is { id, key } for the invitation started on this device; grpView is the server's
 // view of it: who has added their memories so far. shownFrom is who a finished song is signed from.
 let grp = null, grpView = null, groupTimer = null, shownFrom = "";
+let shownTheme = ""; // for a finished theme song: the theme its record names
 const others = () => (grpView ? grpView.parts.filter(p => p.answers && p.answers.length) : []);
 // Once lyrics are written, the song is signed from the people whose memories those lyrics hold.
 const usedIds = () => (draft.groupUsed ? draft.groupUsed.split(",") : []);
@@ -59,7 +60,11 @@ function track(kind){
 }
 
 function updateRecord(){
-  const mine = Object.assign({}, draft, { occasion: occasion(), sender: signedFrom() });
+  // A theme song's record names the theme: what they have typed for it so far, or what the finished song was made with.
+  // On a finished song it is whatever that song's record names. While one is being made: the theme, unless they chose the person's name.
+  const themed = step === 5 ? !!shownTheme : draft.occasion === THEME && draft.recordNames !== "name";
+  const theme = step === 5 ? shownTheme : themed ? themeLabel(draft.a1) || shownTheme : "";
+  const mine = Object.assign({}, draft, { occasion: occasion(), sender: signedFrom(), theme, themed });
   if (step !== -1){ setRecord($("#make-record"), mine); return; }
   // On the opening page there are two records, one for each kind of song: about them, or about a theme or a feeling.
   const both = { lead: "a song about", sender: "", genre: "", nameSize: 40 };
@@ -104,6 +109,8 @@ function questions(){ return questionsFor(draft.occasion); }
 function applyOccasion(){
   $("#occasion-other").hidden = draft.occasion !== OTHER;
   $("#theme-note").hidden = draft.occasion !== THEME;
+  $("#rec-names").hidden = draft.occasion !== THEME;
+  $$("#rec-names .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.names === (draft.recordNames === "name" ? "name" : "theme"))));
   $("#mention-field").hidden = draft.occasion === THEME; // a theme song already asks for the pictures to put in it
   if (draft.occasion !== OTHER) $("#occ-fix").hidden = true;
   const q = questions();
@@ -145,7 +152,7 @@ $$("[data-bind]").forEach(e => e.addEventListener("input", () => {
   const st = e.closest(".step"); if (st) $$(".err", st).forEach(er => { er.textContent = ""; }); // a fixed field clears its warning
   if (e.dataset.bind === "email") $("#contact-box").classList.remove("needs");
   if (e.dataset.bind === "occasionOther") $("#occ-fix").hidden = true; // a correction on offer no longer fits what is typed
-  if (["recipient","sender","title","occasionOther"].indexOf(e.dataset.bind) >= 0) updateRecord();
+  if (["recipient","sender","title","occasionOther","a1"].indexOf(e.dataset.bind) >= 0) updateRecord(); // a1 is the theme of a theme song
 }));
 
 /* ---------- hearing a name, and speaking an answer ---------- */
@@ -415,7 +422,7 @@ $("#record-btn").addEventListener("click", async () => {
     if (!ref){
       const src = readSource();
       ref = await api("/api/orders", { method: "POST", body: { brief: recordBrief(), title: draft.title, lyrics: draft.lyrics, style: draft.style, arrangement: draft.arrangement,
-        source: { from: src.from, join: src.join, ref: src.ref, heard: src.heard, again: src.again } } });
+        source: { from: src.from, join: src.join, ref: src.ref, heard: src.heard, again: src.again }, recordNames: draft.recordNames } });
       save(ORDER_KEY, ref);
       if (src.again) writeSource({ again: undefined }); // the next song is not from that reminder
       view = await call("/api/orders/" + ref.id);
@@ -537,7 +544,7 @@ function startOver(full){
   go(0);
 }
 $("#start-over").addEventListener("click", () => startOver(false));
-$("#make-another").addEventListener("click", () => startOver(false));
+$("#make-another").addEventListener("click", () => { shownTheme = ""; startOver(false); });
 $("#restart-btn").addEventListener("click", () => { $("#restart-confirm").hidden = false; });
 $("#restart-no").addEventListener("click", () => { $("#restart-confirm").hidden = true; });
 $("#restart-yes").addEventListener("click", () => startOver(true));
@@ -553,7 +560,7 @@ function showDone(info){
   const name = info.recipient || "them", url = info.giftUrl;
   const msg = (info.recipient ? info.recipient + ", " : "") + (info.together ? "we" : "I") + " had a song written for you. Open it here: " + url;
   // A song made together is signed from everyone; the organizer's own name stays theirs for the next song.
-  shownFrom = info.together ? info.sender || "" : "";
+  shownFrom = info.together ? info.sender || "" : ""; shownTheme = info.theme || "";
   draft.recipient = info.recipient || draft.recipient; if (!info.together) draft.sender = info.sender || draft.sender; draft.title = info.title || draft.title;
   $("#tg-done").textContent = info.together ? "Everyone who added their memories can hear it too, on the page where they added them, on the same phone or computer they used. They'll also see what " + name + " writes back." : "";
   updateRecord(); $("#make-record").dataset.metal = info.tier === "platinum" ? "platinum" : "gold";
@@ -664,6 +671,46 @@ function renderAsk(){
     chips.append(b);
   });
 }
+
+// The title, changed after the song is recorded: the record, their page and the keepsakes take the new one. The recording is untouched.
+$("#title-save").addEventListener("click", async () => {
+  const err = $("#title-err"), note = $("#title-note"), title = $("#title-in").value.trim(); err.textContent = ""; note.textContent = "";
+  if (title.length < 2){ err.textContent = "Type the title."; return; }
+  if (busy) return; busy = true;
+  try {
+    view = await call("/api/orders/" + ref.id + "/title", { method: "POST", body: { title } });
+    draft.title = view.title; $("#title-in").value = view.title; updateRecord(); note.textContent = "Saved.";
+    const songs = (load(SONGS_KEY) || []).map(s => (s && s.id === view.id ? Object.assign({}, s, { title: view.title }) : s)); save(SONGS_KEY, songs);
+  } catch (e) { err.textContent = e.message; }
+  busy = false;
+});
+// A theme song: which its record names, the theme or the person. While it is being made, and after.
+$$("#rec-names .chip").forEach(c => c.addEventListener("click", () => { draft.recordNames = c.dataset.names; saveDraft(); applyOccasion(); updateRecord(); }));
+$$("#title-names .chip").forEach(c => c.addEventListener("click", async () => {
+  if (busy || !ref || c.dataset.names === view.recordNames) return; busy = true; $("#title-err").textContent = "";
+  try { view = await call("/api/orders/" + ref.id + "/title", { method: "POST", body: { names: c.dataset.names } }); shownTheme = view.theme || ""; updateRecord(); renderTouches(true, view.tier === "platinum"); }
+  catch (e) { $("#title-err").textContent = e.message; }
+  busy = false;
+}));
+// The buyer takes their own song down. Asked twice, in a box of its own, because it can't be undone from here.
+$("#remove-open").addEventListener("click", () => {
+  const name = (view && view.recipient) || "Their";
+  $("#remove-say").textContent = (view && view.recipient ? theirs(name) : "Their") + " page stops working for good. This is not a refund.";
+  $("#remove-err").textContent = ""; const box = $("#remove-ask"); if (box.showModal) box.showModal(); else box.setAttribute("open", "");
+});
+$("#remove-no").addEventListener("click", () => $("#remove-ask").close());
+$("#remove-yes").addEventListener("click", async () => {
+  if (busy || !ref) return; busy = true; const id = ref.id;
+  try {
+    await call("/api/orders/" + id + "/remove", { method: "POST", body: {} });
+    if (leadAudio) leadAudio.pause(); if (voiceAudio) voiceAudio.pause();
+    save(SONGS_KEY, (load(SONGS_KEY) || []).filter(s => s && s.id !== id)); save(ORDER_KEY, null);
+    $("#remove-ask").close(); shownTheme = ""; ref = null; view = null; clearInterval(heardTimer); history.replaceState(null, "", "/");
+    draft = Object.assign(blank(), { sender: draft.sender, email: draft.email }); saveDraft(); syncInputs(); go(-1); renderYours();
+    $(".fine").textContent = "The song has been removed.";
+  } catch (e) { $("#remove-err").textContent = e.message; }
+  busy = false;
+});
 
 let voiceAudio = null, leadAudio = null; // the players for the buyer's own few words, and for the take that is chosen
 
@@ -851,7 +898,7 @@ function drawYours(songs){
       }
       card.addEventListener("click", () => openSong({ id: p.id, key: p.key }));
       group.append(card);
-      setRecord(rec, { recipient: p.recipient, sender: "", title: p.title, occasion: p.occasion });
+      setRecord(rec, { recipient: p.recipient, sender: "", title: p.title, occasion: p.occasion, theme: p.theme });
       // News gets a small celebration, once a visit, as its card comes onto the screen.
       if (news && !cheered[p.id] && "IntersectionObserver" in window){
         const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting) && step === -1){ io.disconnect(); if (!cheered[p.id]){ cheered[p.id] = true; burst(card, news.taps.length ? news.taps : ["❤️"], 8); } } }, { threshold: 0.6 });
@@ -937,6 +984,10 @@ function renderTouches(own, platinum){
   }
   const name = view.recipient || "them";
   $("#touch-lede").textContent = "Add any of these before you send the link. " + name + " finds them when the envelope is opened.";
+  // the title
+  if (document.activeElement !== $("#title-in")) $("#title-in").value = view.title || "";
+  $("#title-names").hidden = !(view.recordNames && view.themeText);
+  $$("#title-names .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.names === view.recordNames)));
   // their voice
   touchLine("#voice-box", "#voice-sum", view.voiceUrl, "Say a few words in your own voice", "Your voice is on it");
   $("#voice-lede").textContent = "Up to " + VOICE_SECONDS + " seconds. " + name + " hears you just before the song starts.";
@@ -1177,9 +1228,10 @@ $("#photo-remove").addEventListener("click", async () => {
 /* ---------- after paying: the Platinum recording that is still to come, and the one free redo ---------- */
 function renderExtras(finished){
   const box = $("#extra-box"), note = $("#extra-note"), redo = $("#redo-box"), second = $("#second-btn");
-  box.hidden = true; redo.hidden = true; second.hidden = true; note.textContent = ""; $("#redo-err").textContent = "";
+  box.hidden = true; redo.hidden = true; second.hidden = true; note.textContent = ""; $("#redo-err").textContent = ""; $("#remove-box").hidden = true;
   renderPlat();
   if (!(ref && view && view.id === ref.id && view.paid)) return; // needs this device's key to the song
+  $("#remove-box").hidden = view.status === "generating";
   const name = view.recipient || "them", platinum = view.tier === "platinum";
   if (view.status === "generating"){
     box.hidden = false;
@@ -1310,8 +1362,8 @@ async function resume(){
   try { view = await call("/api/orders/" + ref.id); }
   catch (e) { ref = null; save(ORDER_KEY, null); return go(-1); }
   if (view.paid) return showDone(view);
-  draft.recipient = view.recipient; if (!view.together) draft.sender = view.sender; draft.occasion = view.occasion; draft.genre = view.genre; draft.tone = view.tone || draft.tone;
-  shownFrom = view.together ? view.sender : "";
+  draft.recipient = view.recipient; if (!view.together) draft.sender = view.sender; draft.occasion = view.occasion; draft.recordNames = view.recordNames === "name" ? "name" : "theme"; draft.genre = view.genre; draft.tone = view.tone || draft.tone;
+  shownFrom = view.together ? view.sender : ""; shownTheme = view.theme || "";
   if (CHIPS.occasion.indexOf(draft.occasion) < 0){ draft.occasionOther = draft.occasion; draft.occasion = OTHER; } // an occasion they typed themselves
   if (view.note && !draft.note) draft.note = view.note;
   syncInputs(); go(4); renderListen(); poll();

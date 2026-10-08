@@ -58,12 +58,14 @@ function canDraw(name) {
   catch (e) { return false; }
 }
 
-// o: { recipient, sender, title, metal }
+// o: { recipient, sender, title, metal, theme }. A theme song's record names the theme, and who it is for goes round the foot.
 function cardSvg(o) {
   const gold = o.metal !== 'platinum';
   const c = gold ? { disc: '#D3A53A', edge: '#9A7218', groove: 'rgba(96,62,0,.22)', hi: '#FFF3C4', lo: '#A87A14' }
     : { disc: '#C8CED6', edge: '#8B949F', groove: 'rgba(40,52,64,.22)', hi: '#FFFFFF', lo: '#8E98A3' };
-  const name = short(drawable(o.recipient), 26) || 'you', title = short(drawable(o.title), 34), from = short(drawable(o.sender), 26);
+  const theme = short(drawable(o.theme), 28), who = short(drawable(o.recipient), 26);
+  const name = theme || who || 'you', title = short(drawable(o.title), 34);
+  const from = theme ? short([who ? 'for ' + who : '', drawable(o.sender) ? 'from ' + drawable(o.sender) : ''].filter(Boolean).join(', '), 36) : short(drawable(o.sender), 26);
   // sized so each line stays inside the round label
   const nameSize = Math.max(13, Math.min(52, Math.round(350 / Math.max(name.length, 6))));
   const titleSize = Math.max(9.5, Math.min(14.5, 390 / Math.max(title.length, 1))).toFixed(1);
@@ -86,11 +88,11 @@ function cardSvg(o) {
     <circle cx="200" cy="200" r="107" fill="#FFFFFF"/><circle cx="200" cy="200" r="107" fill="none" stroke="${c.edge}" stroke-width="2.5"/>
     <circle cx="200" cy="200" r="101" fill="none" stroke="#0E2A33" stroke-width=".8" opacity=".35"/>
     <text font-family="Cormorant Garamond" font-weight="600" font-size="9.5" letter-spacing="3.2" fill="#0E2A33"><textPath href="#arcT" startOffset="50%" text-anchor="middle">SONGPOST</textPath></text>
-    <text x="200" y="138" text-anchor="middle" font-family="Cormorant Garamond" font-style="italic" font-weight="500" font-size="17" fill="#0E2A33">for</text>
+    <text x="200" y="138" text-anchor="middle" font-family="Cormorant Garamond" font-style="italic" font-weight="500" font-size="17" fill="#0E2A33">${theme ? 'a song about' : 'for'}</text>
     <text x="200" y="${(160 + nameSize * 0.36).toFixed(1)}" text-anchor="middle" font-family="Cormorant Garamond" font-weight="700" font-size="${nameSize}" fill="#0E2A33">${esc(name)}</text>
     <path d="${HEART}" transform="translate(200 200) scale(.105) translate(0 -24)" fill="#0E2A33"/>
     <text x="200" y="250" text-anchor="middle" font-family="Cormorant Garamond" font-style="italic" font-weight="500" font-size="${titleSize}" fill="#0E2A33">${esc(title)}</text>
-    ${from ? `<text font-family="Cormorant Garamond" font-weight="600" font-size="10.5" letter-spacing="1.2" fill="#0E2A33"><textPath href="#arcB" startOffset="50%" text-anchor="middle">from ${esc(from)}</textPath></text>` : ''}
+    ${from ? `<text font-family="Cormorant Garamond" font-weight="600" font-size="10.5" letter-spacing="1.2" fill="#0E2A33"><textPath href="#arcB" startOffset="50%" text-anchor="middle">${theme ? '' : 'from '}${esc(from)}</textPath></text>` : ''}
   </g>
 </svg>`;
 }
@@ -100,7 +102,7 @@ const kept = new Map();
 function cardPng(o) {
   const t = load();
   if (!t) return null;
-  const key = JSON.stringify([o.recipient, o.sender, o.title, o.metal]);
+  const key = JSON.stringify([o.recipient, o.sender, o.title, o.metal, o.theme || '']);
   if (kept.has(key)) return kept.get(key);
   const png = new t.Resvg(cardSvg(o), { font: { fontFiles: t.fonts, loadSystemFonts: false, defaultFontFamily: 'Cormorant Garamond' }, fitTo: { mode: 'width', value: W } }).render().asPng();
   kept.set(key, png);

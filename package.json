@@ -1,6 +1,6 @@
 {
   "name": "songpost-site",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "description": "Self-serve song gift site: lyrics by Claude, music by a swappable engine, payment by Stripe.",
   "main": "server.js",
@@ -13,10 +13,20 @@
     "node": ">=20.12"
   },
   "dependencies": {
+    "@expo-google-fonts/alex-brush": "^0.4.1",
+    "@expo-google-fonts/allura": "^0.4.2",
     "@expo-google-fonts/cormorant-garamond": "^0.4.1",
+    "@expo-google-fonts/dancing-script": "^0.4.2",
+    "@expo-google-fonts/great-vibes": "^0.4.1",
+    "@expo-google-fonts/homemade-apple": "^0.4.1",
+    "@expo-google-fonts/jost": "^0.4.2",
+    "@expo-google-fonts/mrs-saint-delafield": "^0.4.1",
+    "@expo-google-fonts/pinyon-script": "^0.4.1",
+    "@expo-google-fonts/sacramento": "^0.4.1",
     "@resvg/resvg-js": "^2.6.2",
     "better-sqlite3": "^11.0.0",
     "express": "^4.19.2",
+    "pdfkit": "^0.17.2",
     "qrcode-generator": "^2.0.4",
     "stripe": "^16.0.0"
   }

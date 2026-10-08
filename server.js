@@ -14,6 +14,7 @@ const { getEngine, activeName, backupName, premiumModel, ready: engineReady, PAI
 const mureka = require('./src/engines/mureka');
 const { cleanJpeg, sizeProblem } = require('./src/photo');
 const { sheetHtml, qrCardHtml, DESIGNS: SHEET_DESIGNS } = require('./src/sheet');
+const sheetpdf = require('./src/sheetpdf');
 const vendorFeeds = require('./src/vendors');
 const { parseSections } = require('./src/sections');
 const { cleanStrokes, wavInfo } = require('./src/touches');
@@ -57,6 +58,22 @@ const DAY = 24 * 3600 * 1000;
 
 // What the gift page shows: the words of the recording that was chosen, which can differ from
 // lyrics the sender has edited since but not recorded.
+// A theme song is about its theme, not the person. Its record names the theme: the few words the sender gave for it,
+// short enough for the label. Songs made before the theme was kept on its own have it read from what they told us.
+const THEME_Q = 'The theme, in a few words';
+function themeLabel(text) {
+  let t = String(text || '').replace(/\s+/g, ' ').trim().replace(/[.!,;:]+$/, '');
+  if (t.length > 26) { const cut = t.slice(0, 27); t = cut.slice(0, Math.max(cut.lastIndexOf(' '), 12)).replace(/[\s,;:.-]+$/, '') + '\u2026'; }
+  return t;
+}
+function themeTextOf(o) {
+  if (o.occasion !== THEME) return '';
+  if (o.theme) return o.theme;
+  const first = String(o.details || '').split('\n')[0] || '';
+  return first.startsWith(THEME_Q) ? themeLabel(first.slice(THEME_Q.length)) : '';
+}
+// What the record names: the theme, unless the buyer chose the person's name for it. '' for a song that is not a theme song.
+const themeOf = o => (o.record_names === 'name' ? '' : themeTextOf(o));
 function shown(o) {
   const t = o.takes[o.chosen];
   return { title: (t && t.title) || o.title, lyrics: (t && t.lyrics) || o.lyrics };
@@ -203,7 +220,9 @@ const voiceUrl = o => (o.spoken ? `/voice/${o.id}?v=${encodeURIComponent(String(
 function senderView(o) {
   return {
     id: o.id, status: o.status, error: o.error || null, paid: o.paid, paidAt: o.paid_at || null, tier: o.tier || 'gold',
-    recipient: o.recipient, sender: o.sender, occasion: o.occasion, genre: o.genre, tone: o.tone, title: o.title, lyrics: o.lyrics, style: o.style || '',
+    recipient: o.recipient, sender: o.sender, occasion: o.occasion, genre: o.genre, tone: o.tone, title: o.title, lyrics: o.lyrics, style: o.style || '', theme: themeOf(o),
+    // for a theme song: the theme itself, and which of the two its record names (theme | name)
+    themeText: themeTextOf(o), recordNames: o.occasion === THEME ? (o.record_names === 'name' ? 'name' : 'theme') : null,
     arrangement: o.arrangement || '',
     note: o.note || '', sayName: o.say_name || '', contactKind: contactKind(o.contact),
     takes: o.takes.map((t, i) => ({ n: i, title: t.title, duration: t.duration, previewSection: t.previewSection || null, premium: !!t.premium })), chosen: o.chosen,
@@ -238,7 +257,7 @@ app.post('/api/orders/peek', wrap(async (req, res) => {
     const id = String(s && s.id || ''), key = Buffer.from(String(s && s.key || '')), o = id ? db.getOrder(id) : null, real = Buffer.from(o ? o.key : '');
     if (!o || o.removed || !key.length || key.length !== real.length || !crypto.timingSafeEqual(key, real)) return { id, gone: true };
     const replies = o.paid ? db.repliesFor(o.id) : [], last = replies[replies.length - 1], rem = o.paid ? db.reminderFor(o.id) : null;
-    return { id, nextDay: rem && rem.month_day ? { monthDay: rem.month_day, what: rem.what || '' } : null, recipient: o.recipient, title: shown(o).title, tier: o.tier || 'gold', relationship: o.relationship || '', occasion: o.occasion || '',
+    return { id, nextDay: rem && rem.month_day ? { monthDay: rem.month_day, what: rem.what || '' } : null, recipient: o.recipient, theme: themeOf(o), title: shown(o).title, tier: o.tier || 'gold', relationship: o.relationship || '', occasion: o.occasion || '',
       paid: !!o.paid, paidAt: o.paid_at || null, firstPlayedAt: o.first_played_at || null,
       replies: replies.length, lastReply: last ? { body: clip(last.body, 140), at: last.at } : null,
       taps: o.paid ? db.tapsFor(o.id) : [], videos: o.paid ? db.reactionsFor(o.id).length : 0 };
@@ -467,6 +486,8 @@ app.post('/api/orders', wrap(async (req, res) => {
     style, arrangement,
     // the sender's own answers, so they can choose one or two to show on the gift page. A theme song's are about the theme, not the person.
     answers_json: JSON.stringify(brief.occasion === THEME ? [] : brief.answers),
+    theme: brief.occasion === THEME ? themeLabel((brief.answers.find(a => a.q === THEME_Q) || brief.answers[0] || {}).a) || null : null,
+    record_names: brief.occasion === THEME && req.body.recordNames === 'name' ? 'name' : null,
     note: '', attempts: 1, ip: req.ip, language: brief.language, say_name: brief.sayName, contact: brief.contact, gen_started_at: Date.now(),
   }, src);
   db.createOrder(order);
@@ -625,7 +646,7 @@ app.get('/api/orders/:id/confirm', wrap(async (req, res) => {
     }
     o = db.getOrder(o.id);
   }
-  res.json({ id: o.id, paid: o.paid, paidAt: o.paid_at || null, tier: o.tier || 'gold', recipient: o.recipient, sender: o.sender, together: !!o.group_id, title: shown(o).title,
+  res.json({ id: o.id, paid: o.paid, paidAt: o.paid_at || null, tier: o.tier || 'gold', recipient: o.recipient, sender: o.sender, together: !!o.group_id, title: shown(o).title, theme: themeOf(o),
     giftUrl: o.paid ? giftUrl(o.id) : null });
 }));
 
@@ -715,7 +736,7 @@ function liveGift(id) {
 app.get('/api/gift/:id', wrap(async (req, res) => {
   const o = liveGift(req.params.id);
   const words = shown(o);
-  const out = { recipient: o.recipient, sender: o.sender, occasion: o.occasion, genre: o.genre, tone: o.tone, tier: o.tier || 'gold',
+  const out = { recipient: o.recipient, sender: o.sender, occasion: o.occasion, genre: o.genre, tone: o.tone, tier: o.tier || 'gold', theme: themeOf(o),
     title: words.title, lyrics: words.lyrics, note: o.note || '', paidAt: o.paid_at, audioUrl: `/media/${o.id}?take=${o.chosen}`,
     replyIsSent: notify.live() && !!contactKind(o.contact) && canReach(o.contact), // false: a reply waits on the sender's page instead of being messaged
     fromAll: o.group_names && o.group_names !== o.sender ? o.group_names : '', together: !!o.group_id,
@@ -766,11 +787,11 @@ app.post('/api/gift/:id/tap', wrap(async (req, res) => {
 // The words by email, to keep. Whoever is on the gift page types their own address and we send the song's title, its
 // words and its link there, once. Offered only while a mail service is connected (see canEmail above).
 const wordsOnly = lyrics => parseSections(lyrics).filter(x => x.lines.length).map(x => x.lines.join('\n')).join('\n\n');
-function wordsEmail(o, take) {
+function wordsEmail(o, take, attached) {
   const t = take != null ? o.takes[parseInt(take, 10)] : null, words = shown(o);
   const title = (t && t.title) || words.title || '', from = o.group_names || o.sender;
   const lines = [title ? `"${title}"` : 'Your song', `A song for ${o.recipient}, from ${from}`, '', `Listen to it here: ${giftUrl(o.id)}`];
-  if (o.tier === 'platinum') lines.push(`Lyric sheet to print and frame: ${cfg.baseUrl}${sheetUrl(o)}`);
+  if (o.tier === 'platinum') lines.push(attached ? `The lyric sheet is attached as a PDF. More designs to print and frame: ${cfg.baseUrl}${sheetUrl(o)}` : `Lyric sheet to print and frame: ${cfg.baseUrl}${sheetUrl(o)}`);
   lines.push('', wordsOnly((t && t.lyrics) || words.lyrics), '',
     'Save the song from its page if you want to keep it. The page may not stay online.', '',
     'You are getting this because this address was typed in on the song\'s page. We sent it once and have not added you to any list.');
@@ -783,8 +804,11 @@ app.post('/api/gift/:id/email', wrap(async (req, res) => {
   if (contactKind(to) !== 'email') throw new PublicError("That doesn't look like an email address. Check it and try again.");
   // Capped per visitor and per song, so the page can't be used to send a pile of email to someone.
   if (!limits.allow(req.ip, 'giftmail', 6) || !limits.allow('song:' + o.id, 'giftmail-song', 12)) throw new PublicError('That is a lot of emails. Try again later.', 429);
-  const m = wordsEmail(o, req.body.take);
-  notify.send(o.id, to, m.subject, m.body);
+  // A Platinum record's lyric sheet goes with it as a PDF, in the design and paper the page was showing when they asked.
+  const b = req.body || {}, want = { sheet: 1, design: SHEET_DESIGNS.includes(b.design) ? b.design : null, paper: b.paper === 'a4' ? 'a4' : 'letter', pic: b.pic !== false && b.pic !== 0, qr: !!b.qr, take: b.take == null ? null : b.take };
+  const attach = o.tier === 'platinum' && sheetpdf.canDraw(sheetOf(o, want)) ? JSON.stringify(want) : null;
+  const m = wordsEmail(o, req.body.take, !!attach);
+  notify.send(o.id, to, m.subject, m.body, null, attach);
   try { db.addUsage('gift_email', 1, 0); } catch (e) { /* not counted */ }
   res.json({ ok: true });
 }));
@@ -918,6 +942,37 @@ function touchable(req) {
   if (!o.paid) throw new PublicError('Unlock the song first.');
   return o;
 }
+// The title, changed after the song is recorded. The recording is the same; the record, the page and the keepsakes take the new name.
+app.post('/api/orders/:id/title', wrap(async (req, res) => {
+  const o = touchable(req), title = clip(req.body.title, 80);
+  // For a theme song, the same request can say which the record names: the theme, or the person.
+  if (o.occasion === THEME && ['theme', 'name'].includes(req.body.names)) db.updateOrder(o.id, { record_names: req.body.names === 'name' ? 'name' : null });
+  if (req.body.title == null) return res.json(senderView(db.getOrder(o.id)));
+  if (title.length < 2) throw new PublicError('Type the title.');
+  if (title !== shown(o).title) {
+    if (!limits.allow(req.ip, 'title', 20)) throw new PublicError('That is a lot of changes. Try again later.', 429);
+    await reviewContent({ note: title }); // it is shown to the recipient, so it gets the same check as the note
+    const takes = o.takes.map((t, i) => (i === o.chosen ? Object.assign({}, t, { title }) : t));
+    db.updateOrder(o.id, { title, takes });
+    db.addUsage('title_changed', 1, 0);
+  }
+  res.json(senderView(db.getOrder(o.id)));
+}));
+// The buyer takes their own song down. Its page stops working at once. The recording and everything kept with it are
+// deleted for good 30 days later (see cleanUp), which leaves the owner time to put it back if it was a mistake.
+const BUYER_REMOVED_KEEP_DAYS = 30;
+app.post('/api/orders/:id/remove', wrap(async (req, res) => {
+  const o = ownedOrder(req);
+  if (!o.paid) throw new PublicError('Unlock the song first.');
+  if (o.status === 'generating') throw new PublicError('A recording is under way. Remove it once that is done.');
+  if (!o.removed) {
+    if (!limits.allow(req.ip, 'remove', 20)) throw new PublicError('Try again later.', 429);
+    db.updateOrder(o.id, { removed: true, removed_by: 'buyer', removed_at: Date.now() });
+    const r = db.reminderFor(o.id); if (r) db.removeReminder(r.id); // nobody wants to be reminded about a song they took down
+    db.addUsage('buyer_removed', 1, 0);
+  }
+  res.json({ ok: true });
+}));
 // "What Sam told us about you": which one or two of their own answers the gift page shows.
 app.post('/api/orders/:id/words', wrap(async (req, res) => {
   const o = touchable(req), answers = ownAnswers(o);
@@ -1003,7 +1058,7 @@ app.get('/g/:id/card.png', (req, res) => {
   const o = db.getOrder(req.params.id);
   if (!o || !o.paid || o.removed || !card.canDraw(o.recipient)) return res.status(404).end();
   let png = null;
-  try { png = card.cardPng({ recipient: o.recipient, sender: o.sender, title: shown(o).title, metal: o.tier === 'platinum' ? 'platinum' : 'gold' }); }
+  try { png = card.cardPng({ recipient: o.recipient, sender: o.sender, title: shown(o).title, metal: o.tier === 'platinum' ? 'platinum' : 'gold', theme: themeOf(o) }); }
   catch (e) { console.error('The link-preview picture could not be drawn for', o.id, e); }
   if (!png) return res.status(404).end();
   res.type('image/png').set('Cache-Control', 'public, max-age=3600').send(png);
@@ -1015,21 +1070,63 @@ app.get('/photo/:id', (req, res) => {
   res.type('image/jpeg').set('Cache-Control', 'private, max-age=86400').sendFile(path.basename(o.photo), { root: db.mediaDir });
 });
 // The lyric sheet: one page to print and frame. ?take=N gives the words of another of the record's takes.
+// What a lyric sheet says and how it is dressed: for the page, and for the PDF, alike.
+function sheetOf(o, q) {
+  const take = q.take != null && o.takes[parseInt(q.take, 10)] ? parseInt(q.take, 10) : null, t = take != null ? o.takes[take] : null, words = shown(o);
+  const design = SHEET_DESIGNS.includes(q.design) ? q.design : SHEET_DESIGNS.includes(o.sheet_design) ? o.sheet_design : SHEET_DESIGNS[0];
+  return { design, take, title: (t && t.title) || words.title, lyrics: (t && t.lyrics) || words.lyrics, recipient: o.recipient,
+    from: o.group_names || o.sender, paidAt: o.paid_at, signature: signatureOf(o) };
+}
+// The sheet as a PDF file. opt: { design, paper ('letter' | 'a4'), pic, qr, take }. Resolves to { pdf, name }, or null when it can't be drawn
+// here (a song in letters the sheet's typefaces don't have: its page still prints from the browser).
+const keptSheets = new Map();
+async function sheetFile(o, opt) {
+  const s = sheetOf(o, opt), paper = opt.paper === 'a4' ? 'a4' : 'letter', pic = !!opt.pic && !!o.photo, qr = !!opt.qr;
+  if (!sheetpdf.canDraw(s)) return null;
+  const name = `${String(s.title || 'Your song').replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Your song'} - lyric sheet.pdf`;
+  const key = crypto.createHash('sha1').update(JSON.stringify([o.id, s, paper, pic ? o.photo : '', qr])).digest('hex');
+  if (keptSheets.has(key)) return { pdf: keptSheets.get(key), name };
+  let photo = null;
+  if (pic) { try { photo = fs.readFileSync(path.join(db.mediaDir, path.basename(o.photo))); } catch (e) { photo = null; } }
+  const out = await sheetpdf.sheetPdf(Object.assign({}, s, { paper, photo, qr: qr ? `${giftUrl(o.id)}?q=1` : '' }));
+  if (!out) return null;
+  keptSheets.set(key, out.pdf);
+  if (keptSheets.size > 24) keptSheets.delete(keptSheets.keys().next().value);
+  return { pdf: out.pdf, name };
+}
+app.get('/g/:id/sheet.pdf', wrap(async (req, res) => {
+  const o = db.getOrder(req.params.id);
+  if (!o || !o.paid || o.removed || o.tier !== 'platinum') return res.status(404).end();
+  if (!limits.allow(req.ip, 'sheetpdf', 240)) return res.status(429).end();
+  const file = await sheetFile(o, { design: req.query.design, paper: req.query.paper, pic: req.query.pic !== '0', qr: req.query.qr === '1', take: req.query.take });
+  if (!file) return res.status(404).end();
+  if (req.query.dl === '1') { try { db.addUsage('sheet_pdf', 1, 0); } catch (e) { /* not counted */ } }
+  const plain = file.name.replace(/[^\x20-\x7e]/g, '_');
+  res.type('application/pdf').set('Cache-Control', 'private, no-store')
+    .set('Content-Disposition', `${req.query.dl === '1' ? 'attachment' : 'inline'}; filename="${plain}"; filename*=UTF-8''${encodeURIComponent(file.name)}`).send(file.pdf);
+}));
+// A message that carries a lyric sheet has a note of which one. The file is made when the message goes out.
+notify.hooks.files = async row => {
+  let a = null; try { a = JSON.parse(row.attach); } catch (e) { return []; }
+  const o = a && a.sheet ? db.getOrder(row.order_id) : null;
+  if (!o || !o.paid || o.removed || o.tier !== 'platinum') return [];
+  const file = await sheetFile(o, a);
+  return file ? [{ filename: file.name, content: file.pdf }] : [];
+};
 app.get('/g/:id/sheet', (req, res) => {
   const o = db.getOrder(req.params.id);
   if (!o || !o.paid || o.removed || o.tier !== 'platinum') {
     return res.status(404).type('html').send(framed('Songpost', "This lyric sheet isn't here.", '<p>A lyric sheet to print and frame comes with a Platinum record. The link may be mistyped, or the song has been removed.</p>'));
   }
-  const t = req.query.take != null ? o.takes[parseInt(req.query.take, 10)] : null, words = shown(o);
+  const s = sheetOf(o, req.query);
   // The sender arrives with the song's key and may keep a design; anyone else sees the sender's choice and can print another.
   const given = Buffer.from(String(req.query.okey || '')), real = Buffer.from(o.key || '');
   const asSender = given.length > 0 && given.length === real.length && crypto.timingSafeEqual(given, real);
-  const design = SHEET_DESIGNS.includes(req.query.design) ? req.query.design : SHEET_DESIGNS.includes(o.sheet_design) ? o.sheet_design : SHEET_DESIGNS[0];
-  res.set('Cache-Control', 'private, no-store').type('html').send(sheetHtml({
-    design, saveApi: asSender ? `/api/orders/${o.id}/sheet-design` : '', saveKey: asSender ? o.key : '', qr: `${giftUrl(o.id)}?q=1`,
-    title: (t && t.title) || words.title, lyrics: (t && t.lyrics) || words.lyrics, recipient: o.recipient,
-    from: o.group_names || o.sender, paidAt: o.paid_at, photoUrl: photoUrl(o), backUrl: asSender ? `/g/${o.id}?sender=1` : `/g/${o.id}`, signature: signatureOf(o),
-    giftUrl: giftUrl(o.id), mailApi: `/api/gift/${o.id}/email`, canEmail: notify.live(), take: t ? parseInt(req.query.take, 10) : null }));
+  res.set('Cache-Control', 'private, no-store').type('html').send(sheetHtml(Object.assign({}, s, {
+    saveApi: asSender ? `/api/orders/${o.id}/sheet-design` : '', saveKey: asSender ? o.key : '', qr: `${giftUrl(o.id)}?q=1`,
+    photoUrl: photoUrl(o), backUrl: asSender ? `/g/${o.id}?sender=1` : `/g/${o.id}`,
+    giftUrl: giftUrl(o.id), mailApi: `/api/gift/${o.id}/email`, canEmail: notify.live(),
+    pdfUrl: sheetpdf.canDraw(s) ? `${cfg.baseUrl}/g/${o.id}/sheet.pdf` : '' })));
 });
 
 // The sender keeps a design for the lyric sheet.
@@ -1310,7 +1407,7 @@ app.post('/admin/own', adminFirst, express.raw({ type: () => true, limit: '60mb'
 }));
 app.post('/admin/remove', (req, res) => {
   if (!adminOk(req)) return res.status(404).end();
-  db.updateOrder(String(req.body.id || ''), { removed: req.body.restore ? false : true });
+  db.updateOrder(String(req.body.id || ''), req.body.restore ? { removed: false, removed_by: null, removed_at: null } : { removed: true, removed_by: 'owner', removed_at: Date.now() });
   res.redirect('/admin?key=' + encodeURIComponent(cfg.adminKey));
 });
 // Deletes a song for good: its audio, its details, its replies, reports and messages. For privacy requests.
@@ -1678,7 +1775,7 @@ app.get('/admin', (req, res) => {
     <p>Recordings, times and models come from the ${orders.length} most recent songs. "Models used" is what the music service itself reported for each recording. Failures, and the share of tries that failed, are counted from the day this report was added.</p>`;
   const cameBy = o => [o.group_id ? 'made together' : '', o.via === 'gift' ? 'from a gift page' : o.via === 'join' ? 'from a group song' : o.via === 'again' ? 'from a reminder' : '', o.ref_code ? 'partner: ' + o.ref_code : ''].filter(Boolean).join(', ');
   const rows = orders.map(o => `<tr><td>${when(o.created_at)}</td><td>${esc(o.recipient)}</td><td>${esc(o.group_names || o.sender)}${cameBy(o) ? `<br><span class="t-note">${esc(cameBy(o))}</span>` : ''}</td><td>${esc(o.contact || '')}</td>
-    <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? ' REMOVED' : ''}</td><td>${o.takes.length}${o.takes.length ? '<br><span class="t-note">' + esc(o.takes.map(t => (t.engine === 'upload' ? 'your own upload' : ENGINE_LABELS[t.engine] || t.engine || '?') + (t.model ? ' ' + String(t.model).replace(/^mureka-/, '') + (t.model === cfg.premiumModel ? ' (premium)' : '') : '')).join(', ')) + '</span>' : ''}${o.takes.some(t => t.stoodInFor) ? '<br><span class="t-note">The backup engine recorded a take, because the first could not.</span>' : ''}${o.status !== 'generating' && owedKind(o) === 'premium' ? '<br><span class="t-note"><b>The premium recording is still owed.</b> It is tried again by itself; the buyer can also press "Record it now".</span>' : ''}${o.takes.some(t => t.plain) ? '<br><span class="t-note">The studio turned down the fuller notes, so the plain ones were used.</span>' : ''}</td>
+    <td>${esc(o.status)}${o.error ? ' (' + esc(o.error) + ')' : ''}${o.removed ? (o.removed_by === 'buyer' ? ` REMOVED BY THE BUYER${o.removed_at ? ', deleted for good on ' + new Date(o.removed_at + BUYER_REMOVED_KEEP_DAYS * DAY).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}` : ' REMOVED') : ''}</td><td>${o.takes.length}${o.takes.length ? '<br><span class="t-note">' + esc(o.takes.map(t => (t.engine === 'upload' ? 'your own upload' : ENGINE_LABELS[t.engine] || t.engine || '?') + (t.model ? ' ' + String(t.model).replace(/^mureka-/, '') + (t.model === cfg.premiumModel ? ' (premium)' : '') : '')).join(', ')) + '</span>' : ''}${o.takes.some(t => t.stoodInFor) ? '<br><span class="t-note">The backup engine recorded a take, because the first could not.</span>' : ''}${o.status !== 'generating' && owedKind(o) === 'premium' ? '<br><span class="t-note"><b>The premium recording is still owed.</b> It is tried again by itself; the buyer can also press "Record it now".</span>' : ''}${o.takes.some(t => t.plain) ? '<br><span class="t-note">The studio turned down the fuller notes, so the plain ones were used.</span>' : ''}</td>
     <td>${o.paid ? esc(tierName(o.tier)) + (isOwn(o) ? ', not charged' : ' $' + (o.price_cents / 100).toFixed(2)) : ''}</td>
     <td>${o.schedule_date ? esc(o.schedule_date) + (o.schedule_sent_at ? ' sent' : o.schedule_failed_at ? ' could not be delivered' : o.schedule_queued_at ? ' sending' : ' waiting') : ''}${o.redo_at ? '<br>redo used' : ''}</td>
     <td>${o.paid ? `<a href="/g/${esc(o.id)}">page</a>` : ''}</td>
@@ -1917,6 +2014,7 @@ function cleanUp() {
   db.pruneEvents();
   db.pruneGroups(Date.now() - 60 * DAY);
   if (cfg.unpaidKeepDays > 0) for (const o of db.staleUnpaid(Date.now() - cfg.unpaidKeepDays * DAY)) db.expireUnpaid(o.id);
+  for (const id of db.buyerRemovedBefore(Date.now() - BUYER_REMOVED_KEEP_DAYS * DAY)) db.deleteOrder(id); // songs their buyers took down a month ago
 }
 setInterval(sendDue, 60 * 1000).unref();
 setInterval(sendReminders, 15 * 60 * 1000).unref();

@@ -663,3 +663,17 @@ a.btn{text-decoration:none}
 .together .share-row{margin:4px 0 14px}
 .together .share::before{outline-color:transparent}
 #lead-player,#voice-play{margin-top:8px}
+
+/* taking a song down: a quiet link at the very end, and a box that asks before it happens */
+.remove-row{text-align:center}
+.remove-row .btn{color:var(--muted)}
+.confirm{border:0;position:fixed;inset:0;margin:auto;height:fit-content;width:min(420px,calc(100vw - 44px));box-sizing:border-box;border-radius:var(--r-card);background:var(--paper);color:var(--ink);padding:26px 24px 22px;box-shadow:0 30px 60px -20px var(--shadow)}
+.confirm::backdrop{background:rgba(14,42,51,.55)}
+.confirm h2{font-family:var(--serif);font-weight:500;font-size:1.7rem;line-height:1.15;margin:0 0 8px}
+.confirm p{margin:0 0 18px;color:var(--muted)}
+.confirm .row{gap:10px}
+.confirm .err{margin:12px 0 0}
+#title-box .field{margin-top:6px}
+#title-names{margin-top:16px}
+#title-names .legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;margin:0 0 10px}
+#rec-names{margin-top:4px}

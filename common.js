@@ -199,20 +199,28 @@ function wrapTitle(t){
   }
   return lines.map(l => l.length > 26 ? l.slice(0, 25) + "…" : l).filter(Boolean);
 }
+// A theme song is about its theme, not the person: the few words given for it, short enough for a record's label.
+function themeLabel(text){
+  let t = String(text || "").replace(/\s+/g, " ").trim().replace(/[.!,;:]+$/, "");
+  if (t.length > 26){ const cut = t.slice(0, 27); t = cut.slice(0, Math.max(cut.lastIndexOf(" "), 12)).replace(/[\s,;:.-]+$/, "") + "\u2026"; }
+  return t;
+}
 function recordSVG(o){
-  const n = ++recN, to = str(o.recipient).trim(), from = str(o.sender).trim();
+  // o.theme: a theme song. Its label names the theme, and who it is for goes round the foot with who it is from.
+  // o.themed: a theme song whose theme has not been typed yet; the label keeps a place for it.
+  const n = ++recN, theme = str(o.theme).trim(), themed = !!theme || !!o.themed, to = str(o.recipient).trim(), from = str(o.sender).trim();
   const occ = str(o.occasion || "custom");
   // Until the song has a title: "A birthday song", "An anniversary song". A named day keeps its capitals: "A National Histology Day song".
   const said = /\s[A-Z]/.test(occ) || /^(Christmas|Easter|Hanukkah)$/.test(occ) ? occ : occ.toLowerCase();
   const title = str(o.title).trim() || (/^(a |an |our )/i.test(occ) ? occ : (/^[aeiou]/i.test(said) ? "An " : "A ") + said + " song");
-  const shown = to || "their name"; // a blank to fill in, shown until a visitor types the name
+  const shown = themed ? theme || "the theme" : to || "their name"; // a blank to fill in, shown until a visitor types it
   const size = o.nameSize || Math.max(20, Math.min(50, Math.round(380 / Math.max(shown.length, 7))));
   const lines = wrapTitle(title), ys = lines.length > 1 ? [243, 261] : [250];
   let grooves = "";
   for (let r = 192; r >= 114; r -= 4) grooves += '<circle cx="200" cy="200" r="' + r + '" fill="none" stroke="var(--groove)" stroke-width="' + (r % 28 === 0 ? 2.2 : 1) + '"/>';
-  const bottom = from ? "from " + from : str(o.genre);
+  const bottom = themed ? ([to ? "for " + to : "", from ? "from " + from : ""].filter(Boolean).join(", ") || str(o.genre)) : from ? "from " + from : str(o.genre);
   // o.lead replaces the small "for" above the name, and o.aria the spoken description: used by the two records on the opening page.
-  const aria = str(o.aria) || "Record label. " + (to ? "For " + to : "Your song for someone you love") + (from ? ", from " + from : "") + ". " + title + ".";
+  const aria = str(o.aria) || "Record label. " + (theme ? "A song about " + theme + (to ? ", for " + to : "") : to ? "For " + to : "Your song for someone you love") + (from ? ", from " + from : "") + ". " + title + ".";
   return '<svg viewBox="0 0 400 400" role="img" aria-label="' + esc(aria) + '">' +
     '<defs><path id="arcT' + n + '" d="M 108 200 A 92 92 0 0 1 292 200"/><path id="arcB' + n + '" d="M 101 200 A 99 99 0 0 0 299 200"/></defs>' +
     '<circle cx="200" cy="200" r="198" fill="var(--disc)"/>' +
@@ -221,12 +229,12 @@ function recordSVG(o){
     '<circle cx="200" cy="200" r="107" fill="none" stroke="var(--disc-edge)" stroke-width="2.5"/>' +
     '<circle cx="200" cy="200" r="101" fill="none" stroke="var(--label-ink)" stroke-width=".8" opacity=".35"/>' +
     '<text class="lab-brand"><textPath href="#arcT' + n + '" startOffset="50%" text-anchor="middle">SONGPOST</textPath></text>' +
-    '<text class="lab-for" x="200" y="138" text-anchor="middle">' + esc(str(o.lead) || "for") + '</text>' +
-    '<text class="lab-name' + (to ? '' : ' blank') + '" x="200" y="' + (160 + size * 0.36) + '" text-anchor="middle" font-size="' + size + '">' + esc(shown) + '</text>' +
+    '<text class="lab-for" x="200" y="138" text-anchor="middle">' + esc(str(o.lead) || (themed ? "a song about" : "for")) + '</text>' +
+    '<text class="lab-name' + ((themed ? theme : to) ? '' : ' blank') + '" x="200" y="' + (160 + size * 0.36) + '" text-anchor="middle" font-size="' + size + '">' + esc(shown) + '</text>' +
     '<circle class="hole-dot" cx="200" cy="200" r="7" fill="var(--label-ink)"/>' +
     '<path class="hole-heart" d="M0,-30C-25,-75 -100,-55 -100,-5C-100,45 -40,75 0,110C40,75 100,45 100,-5C100,-55 25,-75 0,-30Z" transform="translate(200 200) scale(.105) translate(0 -24)" fill="var(--label-ink)"/>' +
     lines.map((l, i) => '<text class="lab-title" x="200" y="' + ys[i] + '" text-anchor="middle">' + esc(l) + '</text>').join("") +
-    '<text class="lab-from"><textPath href="#arcB' + n + '" startOffset="50%" text-anchor="middle">' + esc(bottom.slice(0, 30)) + '</textPath></text></svg>';
+    '<text class="lab-from"><textPath href="#arcB' + n + '" startOffset="50%" text-anchor="middle">' + esc(bottom.slice(0, themed ? 36 : 30)) + '</textPath></text></svg>';
 }
 
 // Makes sure the writing on a record's label fits inside the label: any line that is too wide for the

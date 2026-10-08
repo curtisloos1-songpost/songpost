@@ -35,10 +35,10 @@ body{margin:0;background:#6CBCCB;color:#0E2A33;font-family:var(--sans)}
 .tick{display:flex;align-items:center;gap:10px;font-size:.98rem;cursor:pointer}
 .tick input{flex:none;width:20px;height:20px;margin:0;accent-color:#0E2A33}
 .acts{display:flex;flex-wrap:wrap;gap:10px}
-.bar button{font:inherit;font-weight:500;font-size:.98rem;letter-spacing:.02em;line-height:1.2;padding:13px 24px;border:0;border-radius:999px;background:#EAF5F7;color:#0E2A33;cursor:pointer}
-.bar button:active{transform:scale(.97)}
-.bar button:focus-visible{outline:2px solid #0E2A33;outline-offset:3px}
-.bar button.go{background:#0E2A33;color:#fff;box-shadow:0 10px 20px -12px rgba(6,40,50,.45)}
+.bar button,.acts a{font:inherit;text-decoration:none;display:inline-block;font-weight:500;font-size:.98rem;letter-spacing:.02em;line-height:1.2;padding:13px 24px;border:0;border-radius:999px;background:#EAF5F7;color:#0E2A33;cursor:pointer}
+.bar button:active,.acts a:active{transform:scale(.97)}
+.bar button:focus-visible,.acts a:focus-visible{outline:2px solid #0E2A33;outline-offset:3px}
+.bar button.go,.acts a.go{background:#0E2A33;color:#fff;box-shadow:0 10px 20px -12px rgba(6,40,50,.45)}
 .hint{margin:0;font-size:.88rem;line-height:1.5;color:#52686E}
 .mail{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
 .mail[hidden]{display:none}
@@ -155,6 +155,7 @@ body{margin:0;background:#6CBCCB;color:#0E2A33;font-family:var(--sans)}
 // It only reads layout sizes that a screen scale doesn't change (offset and scroll sizes).
 const JS = `
 (function(){
+  var M = __MAIL__;
   var ua = navigator.userAgent || '';
   if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) || (ua.indexOf('Safari/') >= 0 && !/Chrome|Chromium|Edg|Android/.test(ua))) document.documentElement.classList.add('fit-print');
   var paper = document.querySelector('.paper'), frame = document.querySelector('.frame'), ly = document.querySelector('.ly');
@@ -219,20 +220,48 @@ const JS = `
   if (sel) sel.addEventListener('change', function(){ paperSize(sel.value === 'a4'); });
   if (show && pic) show.addEventListener('change', function(){ wantPic = show.checked; fit(); });
   document.getElementById('print').addEventListener('click', function(){ window.print(); });
+  // The sheet as a PDF file, as it is set now: this design and paper, with or without the photo and the QR code.
+  var savePdf = document.getElementById('save-pdf'), kept = { url: '', file: null }, canShare = false;
+  function pdfUrl(dl){
+    var q = ['design=' + encodeURIComponent(design.value), 'paper=' + (sel && sel.value === 'a4' ? 'a4' : 'letter'), 'pic=' + (pic && wantPic ? 1 : 0), 'qr=' + (qrTick && qrTick.checked ? 1 : 0)];
+    if (M.take != null) q.push('take=' + M.take);
+    if (dl) q.push('dl=1');
+    return M.pdf + '?' + q.join('&');
+  }
+  var pdfName = (M.title || 'Your song').replace(/[\\/:*?"<>|]/g, ' ') + ' - lyric sheet.pdf';
+  // On a phone the PDF can be handed straight to Mail, Messages and the rest, as an attachment. A phone only allows that at the
+  // moment a button is pressed, so the file is fetched ahead of time, whenever the sheet changes.
+  try { canShare = !!M.pdf && !!navigator.canShare && window.matchMedia('(pointer: coarse)').matches && navigator.canShare({ files: [new File(['x'], 'a.pdf', { type: 'application/pdf' })] }); } catch (e) { canShare = false; }
+  function warm(){
+    var u = pdfUrl(false);
+    if (kept.url === u) return;
+    kept = { url: u, file: null };
+    fetch(u).then(function(r){ return r.ok ? r.blob() : null; }).then(function(b){ if (b && kept.url === u) kept.file = new File([b], pdfName, { type: 'application/pdf' }); }).catch(function(){});
+  }
+  function pdfNow(){ if (!M.pdf) return; if (savePdf) savePdf.href = pdfUrl(true); if (canShare) warm(); }
+  if (savePdf) savePdf.setAttribute('download', pdfName);
+  [design, sel, show, qrTick].forEach(function(el){ if (el) el.addEventListener('change', pdfNow); });
+  pdfNow();
   // The words by email. With a mail service connected we send it; without one, their own mail app opens with it written.
   var mail = document.querySelector('.mail'), mailBtn = document.getElementById('mail'), said = document.getElementById('mail-said');
   var addr = document.getElementById('mail-to'), go = document.getElementById('mail-go'), copy = document.getElementById('mail-copy');
-  var M = __MAIL__;
   function mailto(){
     var st = ly.querySelectorAll('.st'), words = [];
     for (var i = 0; i < st.length; i++){ var ps = st[i].querySelectorAll('p'), l = []; for (var j = 0; j < ps.length; j++) l.push(ps[j].textContent); words.push(l.join('\\n')); }
     var head = ['"' + M.title + '"', 'A song for ' + M.recipient + ', from ' + M.from, '', 'Listen to it here: ' + M.gift, 'Lyric sheet to print and frame: ' + location.href];
+    if (M.pdf) head.push('The lyric sheet as a PDF: ' + pdfUrl(false));
     function make(body){ return 'mailto:?subject=' + encodeURIComponent('The words to "' + M.title + '"') + '&body=' + encodeURIComponent(body.join('\\r\\n')); }
     var full = make(head.concat(['', words.join('\\n\\n')]));
     var phone = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
     return phone || full.length <= 1900 ? full : make(head.concat(['', 'The words are on the page.']));
   }
+  if (canShare) mailBtn.textContent = 'Send the PDF';
+  function sharePdf(){
+    if (kept.file){ navigator.share({ files: [kept.file], title: M.title }).catch(function(){}); return; }
+    mail.hidden = false; said.textContent = 'Getting the PDF ready. Press the button once more.'; warm();
+  }
   mailBtn.addEventListener('click', function(){
+    if (canShare){ sharePdf(); return; }
     if (M.api){ mail.hidden = !mail.hidden; if (!mail.hidden){ addr.hidden = false; go.hidden = false; go.disabled = false; addr.focus(); } return; }
     var a = document.createElement('a'); a.href = mailto(); a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove(); mail.hidden = false;
     said.textContent = 'Your mail app should open with the email written. Put in your own address and send it. Nothing opened?';
@@ -245,9 +274,9 @@ const JS = `
     var to = addr.value.replace(/^\\s+|\\s+$/g, '');
     if (!/^\\S+@\\S+\\.\\S+$/.test(to)){ said.textContent = 'Type your email address first.'; addr.focus(); return; }
     go.disabled = true; said.textContent = 'Sending.';
-    fetch(M.api, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: to, take: M.take }) })
+    fetch(M.api, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: to, take: M.take, design: design.value, paper: sel && sel.value === 'a4' ? 'a4' : 'letter', pic: !!(pic && wantPic), qr: !!(qrTick && qrTick.checked) }) })
       .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if (!r.ok) throw new Error(j.error || 'Something went wrong. Try again.'); }); })
-      .then(function(){ said.textContent = 'Sent to ' + to + '. It can take a minute. If you don\\'t see it, look in your junk folder.'; addr.hidden = true; go.hidden = true; })
+      .then(function(){ said.textContent = 'Sent to ' + to + (M.pdf ? ', with the PDF attached' : '') + '. It can take a minute. If you don\\'t see it, look in your junk folder.'; addr.hidden = true; go.hidden = true; })
       .catch(function(e){ said.textContent = e && e.message && !/fetch/i.test(e.message) ? e.message : 'You seem to be offline. Check your connection and try again.'; go.disabled = false; });
   }
   go.addEventListener('click', sendMail);
@@ -272,7 +301,7 @@ function sigHtml(sig) {
 }
 // What the email button needs, written into the page's script. "<" is escaped so nothing in a title can end the script early.
 function mailData(s) {
-  return JSON.stringify({ title: s.title || 'Your song', recipient: s.recipient || '', from: s.from || '', gift: s.giftUrl || '',
+  return JSON.stringify({ title: s.title || 'Your song', recipient: s.recipient || '', from: s.from || '', gift: s.giftUrl || '', pdf: s.pdfUrl || '',
     api: s.canEmail ? s.mailApi : '', take: s.take == null ? null : s.take, saveApi: s.saveApi || '', saveKey: s.saveKey || '' }).replace(/</g, '\\u003c').replace(/\u2028|\u2029/g, '');
 }
 function sheetHtml(s) {
@@ -312,7 +341,7 @@ function sheetHtml(s) {
   ${s.photoUrl ? '<label class="tick"><input type="checkbox" id="show-pic" checked> Show the photo</label>' : ''}
   ${s.qr ? '<label class="tick"><input type="checkbox" id="show-qr"> Add a QR code that plays the song</label>' : ''}
   <div class="acts">
-    <button class="go" type="button" id="print">Print or save as PDF</button>
+    ${s.pdfUrl ? '<a class="go" id="save-pdf" href="#" download>Save the PDF</a><button type="button" id="print">Print</button>' : '<button class="go" type="button" id="print">Print or save as PDF</button>'}
     <button type="button" id="mail">Email it to myself</button>
   </div>
   <div class="mail" hidden>
@@ -322,7 +351,7 @@ function sheetHtml(s) {
   </div>
   <p class="said" id="design-said" role="status"></p>
   <p class="warn" role="status" hidden></p>
-  <p class="hint">For framing, print at 100% (no "fit to page") on heavy paper. To keep a copy, choose "Save as PDF".</p>
+  <p class="hint">${s.pdfUrl ? 'The PDF is one page, ready to print on heavy paper and frame.' : 'For framing, print at 100% (no "fit to page") on heavy paper. To keep a copy, choose "Save as PDF".'}</p>
 </div>
 </div>
 <div class="frame">
@@ -398,10 +427,10 @@ body{margin:0;background:#6CBCCB;color:#0E2A33;font-family:var(--sans)}
 .tick{display:flex;align-items:center;gap:10px;font-size:.98rem;cursor:pointer}
 .tick input{flex:none;width:20px;height:20px;margin:0;accent-color:#0E2A33}
 .acts{display:flex;flex-wrap:wrap;gap:10px}
-.bar button{font:inherit;font-weight:500;font-size:.98rem;letter-spacing:.02em;line-height:1.2;padding:13px 24px;border:0;border-radius:999px;background:#EAF5F7;color:#0E2A33;cursor:pointer}
-.bar button:active{transform:scale(.97)}
-.bar button:focus-visible{outline:2px solid #0E2A33;outline-offset:3px}
-.bar button.go{background:#0E2A33;color:#fff;box-shadow:0 10px 20px -12px rgba(6,40,50,.45)}
+.bar button,.acts a{font:inherit;text-decoration:none;display:inline-block;font-weight:500;font-size:.98rem;letter-spacing:.02em;line-height:1.2;padding:13px 24px;border:0;border-radius:999px;background:#EAF5F7;color:#0E2A33;cursor:pointer}
+.bar button:active,.acts a:active{transform:scale(.97)}
+.bar button:focus-visible,.acts a:focus-visible{outline:2px solid #0E2A33;outline-offset:3px}
+.bar button.go,.acts a.go{background:#0E2A33;color:#fff;box-shadow:0 10px 20px -12px rgba(6,40,50,.45)}
 .hint{margin:0;font-size:.88rem;line-height:1.5;color:#52686E}
 .frame{margin:20px auto 44px;overflow:hidden}
 .paper{width:var(--w);height:var(--h);background:#fff;position:relative;transform-origin:top left;display:flex;align-items:center;justify-content:center;box-shadow:0 30px 60px -30px rgba(6,40,50,.5)}
