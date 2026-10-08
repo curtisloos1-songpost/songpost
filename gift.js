@@ -324,7 +324,10 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
   const pillStop = el("button", "btn small", "Cancel"); pillStop.type = "button";
   pill.append(pillView, pillSay, pillGo, pillStop);
   const react = el("div", "react");
-  const reactBtn = el("button", "btn", "Record a video for " + g.sender); reactBtn.type = "button";
+  const CAM = '<svg class="cam" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><rect x="2.5" y="6" width="13" height="12" rx="3"/><path d="M15.5 10.4l5.2-3v9.2l-5.2-3z"/></svg>';
+  // A button that opens the camera says so with a camera on it.
+  const camLabel = (b, text) => { b.textContent = ""; b.insertAdjacentHTML("afterbegin", CAM); b.append(el("span", null, text)); };
+  const reactBtn = el("button", "btn"); reactBtn.type = "button"; camLabel(reactBtn, "Record a video for " + g.sender);
   const review = el("div", "react-review"); review.hidden = true;
   const reviewVid = el("video"); reviewVid.controls = true; reviewVid.playsInline = true; reviewVid.setAttribute("playsinline", "");
   const shareV = el("label", "check"), cbV = el("input"); cbV.type = "checkbox";
@@ -413,25 +416,26 @@ api("/api/gift/" + encodeURIComponent(id)).then(g => {
       catch (e) { throw new Error("You seem to be offline. Check your connection and try again."); }
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Something went wrong. Try again.");
-      dropClip(); g.reactionsLeft -= 1; reactBtn.hidden = g.reactionsLeft <= 0; reactBtn.textContent = "Record another";
+      dropClip(); g.reactionsLeft -= 1; reactBtn.hidden = g.reactionsLeft <= 0; camLabel(reactBtn, "Record another");
       reactNote.textContent = "Sent to " + g.sender + ". They'll see it on their own page for this song.";
     } catch (e) { reactNote.textContent = e.message; sendV.disabled = false; }
   });
   window.addEventListener("pagehide", stopCamera);
   if (canFilm){
     document.body.append(pill);
-    // Before opening: one quiet line under the envelope. Tapping it turns the camera on, and recording starts with the seal.
-    const arm = el("button", "btn quiet small arm", "Let " + g.sender + " see your reaction"); arm.type = "button";
+    // Before opening: a button under the envelope, with a camera on it. Tapping it turns the camera on, and recording starts with the seal.
+    const arm = el("button", "btn arm"); arm.type = "button"; camLabel(arm, "Record your reaction for " + g.sender);
+    const armFine = el("p", "arm-fine", "Optional. Nothing is sent unless you choose.");
     const armNote = el("p", "status-line arm-note"); armNote.setAttribute("role", "status");
     arm.addEventListener("click", async e => {
       e.stopPropagation();
       if (await camera()){
-        armed = true; arm.hidden = true; pillGo.hidden = true; pillSay.textContent = "Starts when you open it.";
-        armNote.textContent = "You're on camera. Open it when you're ready. Nothing is sent unless you choose to send it.";
+        armed = true; arm.hidden = true; armFine.hidden = true; pillGo.hidden = true; pillSay.textContent = "Starts when you open it.";
+        armNote.textContent = "You're on camera. Open it when you're ready.";
       } else armNote.textContent = "We couldn't use your camera. You can still open your song.";
     });
-    cameraOff = () => { arm.hidden = false; armNote.textContent = ""; };
-    arrive.append(arm, armNote);
+    cameraOff = () => { arm.hidden = false; armFine.hidden = false; armNote.textContent = ""; };
+    arrive.append(arm, armFine, armNote);
   }
   if (canFilm) sheet.append(react);
 

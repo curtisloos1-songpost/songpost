@@ -8,7 +8,7 @@ const db = require('./src/db');
 const limits = require('./src/limits');
 const notify = require('./src/notify');
 const { PublicError } = require('./src/errors');
-const { writeLyrics, reviewContent, reviewPhoto, suggestSound, checkSpelling, tidyArrangement, listNames, THEME } = require('./src/lyrics');
+const { LYRIC_CAUSES, writeLyrics, reviewContent, reviewPhoto, suggestSound, checkSpelling, tidyArrangement, listNames, THEME } = require('./src/lyrics');
 const { startGeneration, recoverInterrupted, owedKind, startOwedTake, resumeOwed } = require('./src/jobs');
 const { getEngine, activeName, backupName, premiumModel, ready: engineReady, PAIR: ENGINE_PAIR, LABELS: ENGINE_LABELS } = require('./src/engines');
 const mureka = require('./src/engines/mureka');
@@ -264,6 +264,28 @@ app.post('/api/orders/peek', wrap(async (req, res) => {
   }) });
 }));
 
+// Telling the owner at once, wherever they asked to be told. The same kind of problem is told at most once in half an hour,
+// so a bad afternoon is a handful of notices and not a flood. Nothing a customer typed ever goes into one.
+const alerted = new Map();
+function alertOwner(key, text) {
+  const now = Date.now();
+  if (now - (alerted.get(key) || 0) < 30 * 60 * 1000) return false;
+  alerted.set(key, now);
+  if (cfg.alertUrl) fetch(cfg.alertUrl, { method: 'POST', headers: { 'content-type': 'text/plain; charset=utf-8', Title: 'Songpost' }, body: text, signal: AbortSignal.timeout(8000) }).catch(e => console.error('The alert could not be delivered:', e && e.message));
+  if (cfg.alertEmail && notify.live()) notify.send(null, cfg.alertEmail, 'Songpost needs a look', `${text}\n\nThe admin page has the details under "When things go wrong".`, 'alert');
+  console.error('ALERT:', text);
+  return true;
+}
+// A buyer was left without lyrics after every try. Recorded already (see writeLyrics); here the owner is told.
+function lyricsFailed(e) {
+  const cause = e && e.lyricCause; if (!cause) return;
+  const hour = db.failuresSince('lyrics', Date.now() - 3600 * 1000).reduce((n, r) => n + r.n, 0);
+  alertOwner('lyrics:' + cause, `Lyric writing failed for a buyer after every try: ${LYRIC_CAUSES[cause] || cause}. Failed tries in the last hour: ${hour}.`);
+}
+// Lyrics being written in the background, so a phone that sleeps or loses its signal loses nothing: the page asks how it is going.
+// Kept in memory for a quarter of an hour. { at, state: working | done | failed, tries, out, error, status }
+const lyricJobs = new Map();
+
 // How long lyric writing usually takes: the average of recent requests, or a starting guess.
 const lyricTimes = [];
 const lyricsEstimateSeconds = () => (lyricTimes.length >= 3 ? Math.round(lyricTimes.reduce((a, b) => a + b, 0) / lyricTimes.length) : 20);
@@ -442,14 +464,38 @@ app.post('/api/lyrics', wrap(async (req, res) => {
   requireAccess(req);
   const brief = cleanBrief(req.body.brief);
   limits.checkLyrics(req.ip);
-  const started = Date.now();
-  const out = await writeLyrics(brief, clip(req.body.again, 80) || null);
-  lyricTimes.push(Math.max(1, Math.round((Date.now() - started) / 1000)));
-  if (lyricTimes.length > 20) lyricTimes.shift();
-  // For a song made together: whose memories these lyrics were written from. The browser sends it back when recording.
-  if (brief.group) out.usedParts = brief.group.people.map(p => p.id);
-  res.json(out);
+  const started = Date.now(), again = clip(req.body.again, 80) || null;
+  const finish = out => {
+    lyricTimes.push(Math.max(1, Math.round((Date.now() - started) / 1000)));
+    if (lyricTimes.length > 20) lyricTimes.shift();
+    // For a song made together: whose memories these lyrics were written from. The browser sends it back when recording.
+    if (brief.group) out.usedParts = brief.group.people.map(p => p.id);
+    return out;
+  };
+  if (!req.body.background) { // the answer comes back on this same request
+    try { return res.json(finish(await writeLyrics(brief, again))); } catch (e) { lyricsFailed(e); throw e; }
+  }
+  // In the background: the page is given a ticket and asks how it is going (GET /api/lyrics/:job).
+  for (const [k, j] of lyricJobs) if (Date.now() - j.at > 15 * 60 * 1000) lyricJobs.delete(k);
+  const id = newId(14), job = { at: Date.now(), state: 'working', tries: 0 };
+  lyricJobs.set(id, job);
+  writeLyrics(brief, again, t => { if (!t.ok) job.tries++; })
+    .then(out => { job.out = finish(out); job.state = 'done'; })
+    .catch(e => {
+      lyricsFailed(e);
+      if (!(e instanceof PublicError)) console.error('Lyric writing crashed:', e);
+      job.state = 'failed'; job.error = e instanceof PublicError ? e.publicMessage : 'Something went wrong on our side. Try again.'; job.status = (e instanceof PublicError && e.status) || 500;
+    });
+  res.json({ job: id });
 }));
+app.get('/api/lyrics/:job', (req, res) => {
+  const job = lyricJobs.get(String(req.params.job));
+  res.set('Cache-Control', 'no-store');
+  if (!job) return res.status(404).json({ error: 'The lyrics were interrupted. Try again.' });
+  if (job.state === 'done') return res.json({ state: 'done', out: job.out });
+  if (job.state === 'failed') return res.json({ state: 'failed', error: job.error, status: job.status });
+  res.json({ state: 'working', tries: job.tries });
+});
 
 // 2. Record the song. Costs us money, so it needs a contact and is rate limited.
 app.post('/api/orders', wrap(async (req, res) => {
@@ -1591,6 +1637,8 @@ app.get('/admin', (req, res) => {
   const margin = mEver.sales ? (mEver.revenue - mEver.fees - perUse(mEver)) / mEver.sales : goldPrice - goldFee - (unlocksEver ? perUse(mEver) / unlocksEver : 0);
   const breakEven = fixed > 0 && margin > 0 ? Math.ceil(fixed / margin) : null;
   const attention = new Set();
+  const lyricFails = db.failuresSince('lyrics', Date.now() - DAY), lyricFailN = lyricFails.reduce((n, r) => n + r.n, 0);
+  if (lyricFailN) attention.add(`Lyric writing left a buyer with an error ${lyricFailN} time${lyricFailN === 1 ? '' : 's'} in the last 24 hours, most often because ${esc(LYRIC_CAUSES[lyricFails[0].cause] || lyricFails[0].cause)}. See <a href="#trouble">When things go wrong</a>.`);
   vendors.forEach((v, i) => {
     const f = figures[i];
     for (const a of f.alerts) attention.add(esc(a));
@@ -1729,6 +1777,8 @@ app.get('/admin', (req, res) => {
   const span = h => (h < 1 ? Math.max(1, Math.round(h * 60)) + ' min' : h < 48 ? Math.round(h) + ' hours' : Math.round(h / 24) + ' days');
   const allReplies = db.listReplies(1000), repliedTo = new Set(allReplies.filter(r => sent.some(o => o.id === r.order_id)).map(r => r.order_id)).size;
   const countsAll = db.usageTotals(null), counted = k => (countsAll[k] ? countsAll[k].n : 0);
+  const lyricsFailedAll = Object.values(db.usageByPrefix('lyrics_failed:', null)).reduce((n, r) => n + r.n, 0), incidents = db.listIncidents(15);
+  const alertsOn = !!(cfg.alertUrl || (cfg.alertEmail && notify.live()));
   const eng = {}, slot = n => (eng[n] = eng[n] || { made: 0, secs: 0, timed: 0, stoodIn: 0, models: {} });
   for (const o of orders) for (const t of o.takes) {
     if (!t.engine) continue;
@@ -1770,6 +1820,17 @@ app.get('/admin', (req, res) => {
       ${tile('On phone home screens', `${counted('app_install')} / ${counted('app_open')}`, 'Times Songpost was added to a home screen (Android only: iPhones do not report it), and visits opened from one')}
     </div>
     <p>Worked out from the ${orders.length} most recent songs, practice unlocks included. A play is counted when someone presses play on the gift page. The sender looking at their own gift, from the device they made it on, is not counted. Listens and saves are counted from the day this report was added.</p>
+    <h2 id="trouble">When things go wrong</h2>
+    <div class="tiles">
+      ${tile('Lyrics written first time', pct(counted('lyrics_ok_first'), counted('lyrics_ok_first') + counted('lyrics_ok_retry') + lyricsFailedAll), `${counted('lyrics_ok_first')} of ${counted('lyrics_ok_first') + counted('lyrics_ok_retry') + lyricsFailedAll} requests since counting began`)}
+      ${tile('Saved by trying again', String(counted('lyrics_ok_retry')), `The buyer saw nothing wrong${counted('lyrics_ok_fallback') ? `. ${counted('lyrics_ok_fallback')} written by the backup model` : ''}`)}
+      ${tile('Buyer saw an error', String(lyricsFailedAll), 'Every try failed, so the buyer was asked to try again')}
+      ${tile('Telling you at once', alertsOn ? 'On' : 'Off', alertsOn ? `Goes to ${[cfg.alertUrl ? 'your alert address' : '', cfg.alertEmail && notify.live() ? esc(cfg.alertEmail) : ''].filter(Boolean).join(' and ')}`
+        : cfg.alertEmail ? 'ALERT_EMAIL is set, but it needs the email service connected first. ALERT_URL works without it' : 'Set ALERT_URL on Render to get a notice on your phone when a buyer sees an error')}
+    </div>
+    <p>When the lyrics fail, Songpost tries again on its own, up to three times, and moves to a faster backup model if the first is slow. The buyer only sees an error if all three fail. Their answers stay saved on their device either way.</p>
+    ${incidents.length ? `<div class="wrap"><table class="money"><tr><th>When</th><th>What</th><th>Why</th><th>Detail</th><th>What happened</th></tr>
+      ${incidents.map(i => `<tr><td>${when(i.at)}</td><td>${i.kind === 'lyrics' ? 'Lyric writing' : esc(i.kind)}</td><td>${esc(LYRIC_CAUSES[i.cause] || i.cause)}</td><td>${esc(i.detail || '')}</td><td>${i.saved ? 'Saved by trying again' : '<b>The buyer saw an error</b>'}</td></tr>`).join('')}</table></div>` : '<p>Nothing has gone wrong yet.</p>'}
     <h2>How the music engines are doing</h2>
     <div class="wrap"><table><tr><th>Engine</th><th>Recordings made</th><th>Typical time</th><th>Stood in as backup</th><th>Failed</th><th>Models used</th></tr>${engRows}</table></div>
     <p>Recordings, times and models come from the ${orders.length} most recent songs. "Models used" is what the music service itself reported for each recording. Failures, and the share of tries that failed, are counted from the day this report was added.</p>`;

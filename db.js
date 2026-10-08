@@ -49,6 +49,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS usage (day TEXT, kind TEXT, n INTEGER NOT NU
 // The owner's choices made on the admin page (which music engine records the songs).
 db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
 
+// When something went wrong and what the site did about it. kind: what failed (lyrics). cause: why, in one word.
+// detail: the technical side of it, never anything a customer typed. saved: 1 when trying again worked and the buyer saw nothing.
+db.exec(`CREATE TABLE IF NOT EXISTS incidents (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, kind TEXT NOT NULL, cause TEXT, detail TEXT, saved INTEGER NOT NULL DEFAULT 0)`);
+
 // Whether each outside service (claude, music, stripe, messages) last worked, for the health check.
 db.exec(`CREATE TABLE IF NOT EXISTS health (service TEXT PRIMARY KEY, last_ok_at INTEGER, last_err_at INTEGER, last_err TEXT, fails_in_row INTEGER NOT NULL DEFAULT 0)`);
 
@@ -336,6 +340,15 @@ module.exports = {
     if (ip) return db.prepare('SELECT COUNT(*) AS n FROM events WHERE kind = ? AND at > ? AND ip = ?').get(kind, since, ip).n;
     return db.prepare('SELECT COUNT(*) AS n FROM events WHERE kind = ? AND at > ?').get(kind, since).n;
   },
+  addIncident(kind, cause, detail, saved) {
+    try {
+      db.prepare('INSERT INTO incidents (at, kind, cause, detail, saved) VALUES (?, ?, ?, ?, ?)').run(Date.now(), kind, cause || '', String(detail || '').slice(0, 300), saved ? 1 : 0);
+      db.prepare('DELETE FROM incidents WHERE id <= (SELECT MAX(id) FROM incidents) - 500').run();
+    } catch (e) { /* keeping a record must never break a song */ }
+  },
+  listIncidents(limit = 20) { return db.prepare('SELECT * FROM incidents ORDER BY id DESC LIMIT ?').all(limit); },
+  // How many times, since a moment, a buyer was left with an error, by cause: [{ cause, n }], the commonest first.
+  failuresSince(kind, since) { return db.prepare('SELECT cause, COUNT(*) AS n FROM incidents WHERE kind = ? AND saved = 0 AND at > ? GROUP BY cause ORDER BY n DESC').all(kind, since); },
   pruneEvents() { db.prepare('DELETE FROM events WHERE at < ?').run(Date.now() - 3 * 24 * 3600 * 1000); },
 
   addReply(orderId, body, shareOk, photoOk) {

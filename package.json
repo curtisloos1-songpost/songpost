@@ -1,6 +1,6 @@
 {
   "name": "songpost-site",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "description": "Self-serve song gift site: lyrics by Claude, music by a swappable engine, payment by Stripe.",
   "main": "server.js",

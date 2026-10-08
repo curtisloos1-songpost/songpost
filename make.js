@@ -386,7 +386,8 @@ async function writeLyrics(again){
   $("#make-record").classList.add("spinning");
   let ok = false;
   try {
-    const out = await api("/api/lyrics", { method: "POST", body: { brief: brief(), again: again ? draft.title : undefined } });
+    const begun = await api("/api/lyrics", { method: "POST", body: { brief: brief(), again: again ? draft.title : undefined, background: true } });
+    const out = begun.job ? await lyricsWhenReady(begun.job, again ? $("#again-status") : $("#write-status")) : begun;
     draft.title = out.title; draft.lyrics = out.lyrics; draft.style = out.style; draft.arrangement = out.arrangement || ""; draft.english = out.english || "";
     draft.groupUsed = (out.usedParts || []).join(","); // whose memories these lyrics were written from
     saveDraft(); syncInputs(); renderTogether(); track("lyrics"); ok = true;
@@ -395,6 +396,25 @@ async function writeLyrics(again){
   if (step !== 4) stopProgress();
   $("#make-record").classList.remove("spinning");
   if (ok && !again) go(3); else if (!again) $("#keep-btn").hidden = !draft.lyrics.trim();
+}
+// The lyrics are written in the background. This asks how they are going every two seconds until they are ready.
+// A phone that sleeps or drops its signal just asks again when it is back; the writing carries on meanwhile.
+async function lyricsWhenReady(job, status){
+  const began = Date.now(); let missed = 0;
+  try {
+    for (;;) {
+      await new Promise(r => setTimeout(r, 2000));
+      let res, json = {};
+      try { res = await fetch("/api/lyrics/" + encodeURIComponent(job), { cache: "no-store" }); json = await res.json().catch(() => ({})); }
+      catch (e) { if (++missed > 90) throw new Error("You seem to be offline. Check your connection and try again."); continue; } // no signal just now
+      missed = 0;
+      if (res.status === 404) throw new Error(json.error || "The lyrics were interrupted. Try again.");
+      if (json.state === "done") return json.out;
+      if (json.state === "failed") throw new Error(json.error || "The lyrics did not come through. Try again.");
+      if (status && (json.tries || Date.now() - began > 45000)) status.textContent = "Still writing. This one is taking a little longer.";
+      if (Date.now() - began > 8 * 60 * 1000) throw new Error("The lyrics are taking longer than usual. Your answers are saved. Try again in a minute.");
+    }
+  } finally { if (status) status.textContent = ""; }
 }
 $("#write-btn").addEventListener("click", () => writeLyrics(false));
 $("#again-btn").addEventListener("click", () => writeLyrics(true));

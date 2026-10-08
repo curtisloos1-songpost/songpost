@@ -171,11 +171,26 @@ function tidyArrangement(text) {
   return word(text).replace(/\\n/g, '\n').split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim().slice(0, 200)).filter(l => l && !/:$/.test(l)).slice(0, 20).join('\n').slice(0, 2000);
 }
 
+// A reply that is nearly JSON is put right before it is given up on. The usual fault is real line breaks typed inside
+// the lyrics, where JSON wants them written as \n; a comma left before a closing bracket is the other.
+function mendJson(s) {
+  let out = '', inStr = false, esc = false;
+  for (const ch of s) {
+    if (!inStr) { if (ch === '"') inStr = true; out += ch; continue; }
+    if (esc) { esc = false; out += ch; continue; }
+    if (ch === '\\') { esc = true; out += ch; continue; }
+    if (ch === '"') { inStr = false; out += ch; continue; }
+    out += ch === '\n' ? '\\n' : ch === '\r' ? '' : ch === '\t' ? '\\t' : ch;
+  }
+  return out.replace(/,(\s*[}\]])/g, '$1');
+}
 function parseJson(text) {
   const t = String(text || '').trim();
-  try { return JSON.parse(t); } catch (e) { /* fall through */ }
-  const a = t.indexOf('{'), z = t.lastIndexOf('}');
-  if (a >= 0 && z > a) { try { return JSON.parse(t.slice(a, z + 1)); } catch (e) { /* fall through */ } }
+  const a = t.indexOf('{'), z = t.lastIndexOf('}'), inner = a >= 0 && z > a ? t.slice(a, z + 1) : '';
+  for (const s of [t, inner, inner && mendJson(inner)]) {
+    if (!s) continue;
+    try { const v = JSON.parse(s); if (v && typeof v === 'object') return v; } catch (e) { /* try the next */ }
+  }
   return null;
 }
 
@@ -196,13 +211,17 @@ function mockLyrics(b) {
 // thinking counts against the limit: with a tight limit the answer itself gets cut off part-way. Only the
 // tokens actually used are billed.
 // Throws an Error with .kind "timeout" (no answer in time) or "http" (.status holds the code).
-async function askClaude(prompt, { model, maxTokens, timeoutMs, quiet400 }) {
+// info, when given, is filled in with { stop }: why the reply ended ("max_tokens" means it was cut off before it finished).
+// form, when given, is { name, description, input_schema }: the reply must then come back as that form filled in, which the
+// service checks is well made before sending it. Without it the reply is plain writing, which can come back badly punctuated.
+async function askClaude(prompt, { model, maxTokens, timeoutMs, quiet400, info, form }) {
   let res;
   try {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
+    res = await fetch(cfg.anthropicBase + '/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': cfg.anthropicKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify(Object.assign({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] },
+        form ? { tools: [form], tool_choice: { type: 'tool', name: form.name } } : {})),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
@@ -217,10 +236,24 @@ async function askClaude(prompt, { model, maxTokens, timeoutMs, quiet400 }) {
   }
   const data = await res.json();
   db.noteOk('claude');
+  if (info) info.stop = data.stop_reason || '';
   // Count what this request used, for the cost figures on the admin page.
   try { const u = data.usage || {}; db.addUsage('claude_in', 1, u.input_tokens || 0); db.addUsage('claude_out', 1, u.output_tokens || 0); } catch (e) { /* counting never blocks a song */ }
+  const filled = form && (data.content || []).find(c => c.type === 'tool_use' && c.name === form.name && c.input && typeof c.input === 'object');
+  if (filled) return JSON.stringify(filled.input);
   return (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
 }
+
+// The form the songwriter fills in. Asking for it this way means quotation marks and line breaks in the lyrics cannot spoil the reply.
+const SONG_FORM = { name: 'song', description: 'Hand in the finished song, or say why it cannot be written.',
+  input_schema: { type: 'object', properties: {
+    title: { type: 'string', description: 'The song title' },
+    style: { type: 'string', description: 'The style description for the recording' },
+    arrangement: { type: 'string', description: 'The producer notes, one part per line' },
+    lyrics: { type: 'string', description: 'The full lyrics, with section tags such as [Verse 1] and [Chorus] on their own lines' },
+    english: { type: 'string', description: 'Only for a song in another language: what the lyrics say, in English' },
+    error: { type: 'string', description: 'Only when the song must not be written under the content rules: one friendly sentence saying what to change. Leave every other field out.' },
+  } } };
 
 // Makes the style description open with the tempo the customer chose, and drops any other tempo it mentions.
 function withTempo(style, tempo) {
@@ -230,32 +263,83 @@ function withTempo(style, tempo) {
   return [want].concat(rest).join(', ').slice(0, 600);
 }
 
+// Why a try at the lyrics failed, in the owner's words.
+const LYRIC_CAUSES = { timeout: 'too slow', busy: 'the service was busy', garbled: 'the reply could not be read', cut_short: 'the reply was cut off part-way',
+  refused: 'the service refused the request (check the API key, the credit on the account and the model name)' };
+// What the buyer is told when every try has failed. Their answers are still on their device, so nothing is lost.
+const LYRIC_SAYS = { timeout: 'The lyrics are taking longer than usual. Your answers are saved. Try again in a minute.',
+  busy: 'The songwriter is busy. Your answers are saved. Try again in a minute.',
+  garbled: 'The lyrics did not come through. Try again.', cut_short: 'The lyrics did not come through. Try again.',
+  refused: 'Lyric writing is having trouble on our side, and we have been told. Your answers are saved. Try again later.' };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 // brief: see cleanBrief in server.js. Returns { title, style, arrangement, lyrics, english }.
-async function writeLyrics(brief, again) {
+// The lyrics are tried up to three times before the buyer hears of any trouble:
+//   1. the main model, filling in the song form.
+//   2. the main model again, as plain writing and with more room for the reply. A different way of asking, in case the first way is
+//      what went wrong. Skipped if the first try was simply too slow (asking the same slow model again only keeps them waiting)
+//      or the service turned the key away.
+//   3. the faster backup model.
+// tell, when given, is called after each try with { ok, attempt, cause, model, seconds }, so whoever is waiting can be kept posted.
+// Every failed try is counted by cause. One that a later try put right is recorded as saved; one the buyer saw is recorded as not.
+async function writeLyrics(brief, again, tell) {
   if (!cfg.anthropicKey) {
     if (cfg.devMocks) return mockLyrics(brief);
     throw new PublicError('Lyric writing is not set up yet.', 503);
   }
-  let text;
-  try {
-    text = await askClaude(buildPrompt(brief, again), { model: cfg.anthropicModel, maxTokens: 8000, timeoutMs: 90000 });
-  } catch (e) {
-    if (e.kind === 'timeout') throw new PublicError('The lyrics took too long. Try again.', 504);
-    throw new PublicError(e.status === 429 || e.status === 529 ? 'The songwriter is busy. Try again in a minute.' : 'The lyrics did not come through. Try again.', 502);
+  const prompt = buildPrompt(brief, again), T = cfg.lyricsTimeoutMs, backup = cfg.anthropicFallbackModel || cfg.anthropicModel;
+  const steps = [{ model: cfg.anthropicModel, maxTokens: 8000, timeoutMs: T, form: SONG_FORM }, { model: cfg.anthropicModel, maxTokens: 16000, timeoutMs: T },
+    { model: backup, maxTokens: 16000, timeoutMs: Math.round(T * 0.75), form: SONG_FORM }];
+  let formOk = true; // false once the service has turned the form itself away: the backup model is then asked in plain writing
+  const failed = []; // [{ cause, detail }] for the tries that did not work
+  let attempt = 0;
+  for (let i = 0; i < steps.length; i++) {
+    if (i === 1 && failed.length && (failed[0].cause === 'timeout' || [401, 403].includes(failed[0].status))) continue; // straight to the backup model
+    const step = Object.assign({}, steps[i]), started = Date.now(), info = {}; let cause = '', detail = '';
+    if (!formOk) delete step.form;
+    attempt++;
+    let status = 0, text = '';
+    try {
+      text = await askClaude(prompt, Object.assign({ info }, step));
+      const out = parseJson(text);
+      // The songwriter itself said no (the story breaks the content rules, say). That is an answer, not a failure: it is not tried again.
+      if (out && typeof out.error === 'string' && out.error.trim()) throw new PublicError(out.error.trim().slice(0, 300), 422);
+      const lyrics = out && typeof out.lyrics === 'string' ? out.lyrics.replace(/\\n/g, '\n').trim() : '';
+      if (lyrics) {
+        const seconds = Math.round((Date.now() - started) / 1000);
+        try {
+          db.addUsage(attempt === 1 ? 'lyrics_ok_first' : 'lyrics_ok_retry', 1, 0);
+          if (attempt > 1 && step.model !== cfg.anthropicModel) db.addUsage('lyrics_ok_fallback', 1, 0);
+          for (const f of failed) db.addIncident('lyrics', f.cause, f.detail, true);
+        } catch (e) { /* counting never blocks a song */ }
+        if (tell) tell({ ok: true, attempt, model: step.model, seconds });
+        return {
+          title: String(out.title || '').trim().slice(0, 80) || `A Song for ${brief.recipient}`,
+          style: withTempo(String(out.style || '').trim().slice(0, 600) || `${brief.genre}, warm, clear lead vocal`, brief.tempo),
+          // the producer's notes: what changes from part to part, and what to avoid
+          arrangement: tidyArrangement(out.arrangement),
+          lyrics: lyrics.slice(0, 4500),
+          // what a song in another language says, in English, for a sender who can't read it
+          english: foreign(brief) && typeof out.english === 'string' ? out.english.replace(/\\n/g, '\n').trim().slice(0, 4500) : '',
+        };
+      }
+      cause = info.stop === 'max_tokens' ? 'cut_short' : 'garbled';
+      // The shape of the reply, never its words: nothing a buyer typed is kept here.
+      detail = `${step.model}: ${info.stop === 'max_tokens' ? 'the reply reached its length limit' : 'no lyrics in the reply'} (${String(text || '').length} characters${out ? ', readable but empty' : ''})`;
+    } catch (e) {
+      if (e instanceof PublicError) throw e;
+      status = e.status || 0; if (status === 400 && step.form) formOk = false;
+      cause = e.kind === 'timeout' ? 'timeout' : e.status === 429 || e.status >= 500 ? 'busy' : 'refused';
+      detail = `${step.model}: ${e.kind === 'timeout' ? `no answer in ${Math.round(step.timeoutMs / 1000)} seconds` : 'error ' + e.status}`;
+    }
+    failed.push({ cause, detail, status });
+    try { db.addUsage('lyrics_try_fail:' + cause, 1, 0); } catch (e) { /* not counted */ }
+    if (tell) tell({ ok: false, attempt, cause, model: step.model, seconds: Math.round((Date.now() - started) / 1000) });
+    if (cause === 'busy' && i < steps.length - 1) await sleep(Math.min(1500 * attempt, 4000)); // a breath before asking a busy service again
   }
-  const out = parseJson(text);
-  if (out && typeof out.error === 'string' && out.error.trim()) throw new PublicError(out.error.trim().slice(0, 300), 422);
-  const lyrics = out && typeof out.lyrics === 'string' ? out.lyrics.replace(/\\n/g, '\n').trim() : '';
-  if (!lyrics) throw new PublicError('The lyrics did not come through. Try again.', 502);
-  return {
-    title: String(out.title || '').trim().slice(0, 80) || `A Song for ${brief.recipient}`,
-    style: withTempo(String(out.style || '').trim().slice(0, 600) || `${brief.genre}, warm, clear lead vocal`, brief.tempo),
-    // the producer's notes: what changes from part to part, and what to avoid
-    arrangement: tidyArrangement(out.arrangement),
-    lyrics: lyrics.slice(0, 4500),
-    // what a song in another language says, in English, for a sender who can't read it
-    english: foreign(brief) && typeof out.english === 'string' ? out.english.replace(/\\n/g, '\n').trim().slice(0, 4500) : '',
-  };
+  const last = failed[failed.length - 1];
+  try { db.addUsage('lyrics_failed:' + last.cause, 1, 0); for (const f of failed) db.addIncident('lyrics', f.cause, f.detail, false); } catch (e) { /* not counted */ }
+  throw Object.assign(new PublicError(LYRIC_SAYS[last.cause] || LYRIC_SAYS.garbled, last.cause === 'timeout' ? 504 : 502), { lyricCause: last.cause });
 }
 
 /*
@@ -394,4 +478,4 @@ async function suggestSound(brief) {
   return { tone: tone.join(' and '), genre: genre.join(' and '), tempo, why: typeof out.why === 'string' ? out.why.trim().slice(0, 200) : '' };
 }
 
-module.exports = { writeLyrics, reviewContent, reviewPhoto, suggestSound, checkSpelling, buildPrompt, buildReviewPrompt, buildSuggestPrompt, withTempo, tidyArrangement, listNames, TONES, GENRES, TEMPOS, THEME };
+module.exports = { LYRIC_CAUSES, writeLyrics, reviewContent, reviewPhoto, suggestSound, checkSpelling, buildPrompt, buildReviewPrompt, buildSuggestPrompt, withTempo, tidyArrangement, listNames, TONES, GENRES, TEMPOS, THEME };

@@ -520,7 +520,9 @@ legend{font-weight:500;font-size:.88rem;letter-spacing:.02em;padding:0;margin-bo
 .film-pill[hidden]{display:none}
 .film-pill video{width:56px;height:56px;border-radius:50%;object-fit:cover;background:#000;transform:scaleX(-1);flex:none}
 .film-say{font-size:.86rem;font-variant-numeric:tabular-nums}
-.arm{margin-top:14px;color:var(--on-field)}
+.btn .cam{flex:none;margin-left:-4px}
+.arm{margin-top:20px;color:var(--on-field);background:color-mix(in srgb,var(--on-field) 7%,transparent)}
+.arm-fine{margin:9px 0 0;text-wrap:balance;font-size:.84rem;letter-spacing:.02em;color:var(--on-field-soft);text-align:center}
 .arm-note{max-width:26em;text-align:center;color:var(--on-field-soft)}
 .react{margin-top:30px;padding-top:22px;border-top:1px solid var(--rule)}
 .react h3{font-family:var(--serif);font-weight:500;font-size:1.6rem;line-height:1.1;margin:0 0 8px}

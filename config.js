@@ -50,6 +50,15 @@ const cfg = {
   // Optional. An Anthropic admin key lets the admin page show Anthropic's own bill. Organization accounts only.
   anthropicAdminKey: str('ANTHROPIC_ADMIN_KEY'),
   anthropicModel: str('ANTHROPIC_MODEL', 'claude-sonnet-5-5'),
+  // The model the lyrics fall back to when the main one is too slow or keeps failing. Faster, so the buyer is not left waiting.
+  anthropicFallbackModel: str('ANTHROPIC_FALLBACK_MODEL', 'claude-haiku-4-5-20251001'),
+  // How long one try at the lyrics may take before the next is started. And, for tests only, another address for the Claude API.
+  lyricsTimeoutMs: int('LYRICS_TIMEOUT_MS', 80000),
+  anthropicBase: str('ANTHROPIC_API_BASE', 'https://api.anthropic.com'),
+  // Where the owner is told at once when a buyer ends up with an error. ALERT_URL takes a short line of text by POST
+  // (an ntfy.sh topic address works as it is, and brings a notification to a phone). ALERT_EMAIL needs the email service.
+  alertUrl: str('ALERT_URL'),
+  alertEmail: str('ALERT_EMAIL'),
   // The model that checks a customer's own words against the content rules. Defaults to the lyric-writing model.
   anthropicReviewModel: str('ANTHROPIC_REVIEW_MODEL') || str('ANTHROPIC_MODEL', 'claude-sonnet-5-5'),
 
